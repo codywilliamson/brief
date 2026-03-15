@@ -104,12 +104,42 @@ ai.loop
 let name = value
 ```
 
-Variables are immutable after assignment. No `var`, no `const`. All values are `let`.
+Variables are immutable by default. Use `set` to mutate.
 
 ```
 let topic = "machine learning"
 let count = 42
 let flag = true
+```
+
+### Mutation with `set`
+
+`set` updates an existing variable in the scope where it was defined:
+
+```
+let total = 0
+for item in [1, 2, 3] {
+  set total = total + item
+}
+# total is 6
+
+let items = []
+set items = push(items, "a")
+set items = push(items, "b")
+# items is ["a", "b"]
+```
+
+`set` errors at runtime if the variable has not been declared with `let`.
+
+### Script arguments
+
+Scripts receive CLI arguments via the global `args` array:
+
+```
+# brief run script.br file.txt --verbose
+let path = args[0]      # "file.txt"
+let flag = args[1]      # "--verbose"
+let count = len(args)   # 2
 ```
 
 ---
@@ -394,16 +424,52 @@ for item in list {
 
 ## Built-in functions
 
+### Core
 ```
 print(value)              prints to stdout
 len(value)                length of string or array
+at(array, index)          get element at index (or use arr[i] syntax)
+typeOf(value)             returns "string", "number", "boolean", "null", "array", "result"
+toString(value)           cast to string
+parseInt(str)             parse int
+parseFloat(str)           parse float
+```
+
+### Strings
+```
 trim(str)                 trims whitespace
 split(str, delimiter)     splits string into array
 join(array, delimiter)    joins array into string
 slice(str, start, end)    substring
-parseInt(str)             parse int
-parseFloat(str)           parse float
-toString(value)           cast to string
+contains(str, search)     true if str contains search
+startsWith(str, prefix)   true if str starts with prefix
+endsWith(str, suffix)     true if str ends with suffix
+replace(str, old, new)    replaces all occurrences
+toUpper(str)              uppercase
+toLower(str)              lowercase
+```
+
+### Arrays
+```
+at(array, index)          get element (returns null if out of bounds)
+push(array, ...items)     returns new array with items appended
+concat(arr1, arr2, ...)   returns new merged array
+range(start, end)         returns [start, start+1, ..., end-1]
+keys(array)               returns [0, 1, ..., len-1]
+contains(array, value)    true if array contains value
+```
+
+### Array/string indexing
+```
+let arr = [10, 20, 30]
+arr[0]                    # 10
+arr[1]                    # 20
+
+let str = "hello"
+str[0]                    # "h"
+
+let nested = [[1, 2], [3, 4]]
+nested[0][1]              # 2
 ```
 
 ---
