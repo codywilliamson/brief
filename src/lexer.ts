@@ -39,6 +39,7 @@ export enum TokenType {
   Be,
   Returns,
   Print,
+  Set,
 
   // operators
   Plus,
@@ -112,6 +113,7 @@ const KEYWORDS: Record<string, TokenType> = {
   be: TokenType.Be,
   returns: TokenType.Returns,
   print: TokenType.Print,
+  set: TokenType.Set,
   true: TokenType.True,
   false: TokenType.False,
   null: TokenType.Null,

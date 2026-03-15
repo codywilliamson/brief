@@ -4,6 +4,7 @@ export type Node =
   | Program
   | AllowBlock
   | LetDecl
+  | SetStmt
   | FnDecl
   | ReturnStmt
   | IfStmt
@@ -55,6 +56,13 @@ export interface LetDecl {
   kind: "LetDecl";
   name: string;
   typeAnnotation?: string;
+  value: Node;
+  line: number;
+}
+
+export interface SetStmt {
+  kind: "SetStmt";
+  name: string;
   value: Node;
   line: number;
 }

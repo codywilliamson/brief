@@ -46,6 +46,19 @@ export class Environment {
     this.values.set(name, value);
   }
 
+  // update an existing variable in the scope chain where it was defined
+  update(name: string, value: BriefValue): void {
+    if (this.values.has(name)) {
+      this.values.set(name, value);
+      return;
+    }
+    if (this.parent) {
+      this.parent.update(name, value);
+      return;
+    }
+    throw new BriefRuntimeError(`cannot set undefined variable '${name}'`);
+  }
+
   has(name: string): boolean {
     if (this.values.has(name)) return true;
     if (this.parent) return this.parent.has(name);
@@ -116,6 +129,12 @@ export class Interpreter {
       case "LetDecl": {
         const value = await this.evaluate(node.value, env);
         env.set(node.name, value);
+        return null;
+      }
+
+      case "SetStmt": {
+        const value = await this.evaluate(node.value, env);
+        env.update(node.name, value);
         return null;
       }
 

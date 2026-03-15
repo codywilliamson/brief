@@ -397,4 +397,120 @@ until count == 3 {
       expect(prints).toEqual([1, 2, 3]);
     });
   });
+
+  describe("set statement", () => {
+    it("mutates a variable", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+let x = 1
+set x = 2
+print(x)`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([2]);
+    });
+
+    it("mutates in a loop", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+let total = 0
+for item in [1, 2, 3, 4, 5] {
+  set total = total + item
+}
+print(total)`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([15]);
+    });
+
+    it("builds up an array", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+let items = []
+set items = push(items, "a")
+set items = push(items, "b")
+set items = push(items, "c")
+print(len(items))`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([3]);
+    });
+
+    it("errors on undefined variable", async () => {
+      await expect(run(`allow
+  fs.read
+set x = 42`)).rejects.toThrow("cannot set undefined variable");
+    });
+  });
+
+  describe("expanded stdlib", () => {
+    it("contains() works on strings", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(contains("hello world", "world"))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([true]);
+    });
+
+    it("contains() works on arrays", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(contains([1, 2, 3], 2))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([true]);
+    });
+
+    it("startsWith() and endsWith()", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(startsWith("hello", "hel"))\nprint(endsWith("hello", "llo"))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([true, true]);
+    });
+
+    it("replace() works", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(replace("hello world", "world", "brief"))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual(["hello brief"]);
+    });
+
+    it("toUpper() and toLower()", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(toUpper("hello"))\nprint(toLower("HELLO"))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual(["HELLO", "hello"]);
+    });
+
+    it("push() returns new array", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nlet arr = push([1, 2], 3)\nprint(arr)', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[1, 2, 3]]);
+    });
+
+    it("concat() merges arrays", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nlet arr = concat([1, 2], [3, 4])\nprint(arr)', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[1, 2, 3, 4]]);
+    });
+
+    it("range() generates sequence", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nlet nums = range(0, 5)\nprint(nums)', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[0, 1, 2, 3, 4]]);
+    });
+
+    it("typeOf() returns type strings", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(typeOf("hi"))\nprint(typeOf(42))\nprint(typeOf(true))\nprint(typeOf(null))\nprint(typeOf([1]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual(["string", "number", "boolean", "null", "array"]);
+    });
+  });
 });

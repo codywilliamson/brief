@@ -76,6 +76,7 @@ export class Parser {
     if (this.check(TokenType.Async)) return this.parseFnDecl();
     if (this.check(TokenType.Return)) return this.parseReturnStmt();
     if (this.check(TokenType.If)) return this.parseIfStmt();
+    if (this.check(TokenType.Set)) return this.parseSetStmt();
     if (this.check(TokenType.Unless)) return this.parseUnlessStmt();
     if (this.check(TokenType.Until)) return this.parseUntilStmt();
     if (this.check(TokenType.For)) return this.parseForStmt();
@@ -106,6 +107,15 @@ export class Parser {
     const value = this.parseExpression();
 
     return { kind: "LetDecl", name, typeAnnotation, value, line: tok.line };
+  }
+
+  private parseSetStmt(): AST.SetStmt {
+    const tok = this.advance(); // consume 'set'
+    const name = this.expect(TokenType.Identifier, "expected variable name").value;
+    this.expect(TokenType.Equal, "expected '=' in set statement");
+    this.skipNewlines();
+    const value = this.parseExpression();
+    return { kind: "SetStmt", name, value, line: tok.line };
   }
 
   private parseFnDecl(): AST.FnDecl {

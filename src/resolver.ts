@@ -94,6 +94,10 @@ function resolveNode(
       scope.names.add(node.name);
       break;
     }
+    case "SetStmt": {
+      resolveNode(node.value, scope, permissions, errors);
+      break;
+    }
     case "FnDecl": {
       const fnScope: Scope = { parent: scope, names: new Set() };
       for (const param of node.params) fnScope.names.add(param);
