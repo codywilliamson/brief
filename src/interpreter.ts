@@ -132,6 +132,17 @@ export class Interpreter {
         return null;
       }
 
+      case "LetDestructure": {
+        const value = await this.evaluate(node.value, env);
+        if (!Array.isArray(value)) {
+          throw new BriefRuntimeError("destructuring requires an array value", node.line);
+        }
+        for (let i = 0; i < node.names.length; i++) {
+          env.set(node.names[i], i < value.length ? value[i] : null);
+        }
+        return null;
+      }
+
       case "SetStmt": {
         const value = await this.evaluate(node.value, env);
         env.update(node.name, value);
@@ -377,6 +388,7 @@ export class Interpreter {
 
       // statements that can appear as expressions in some contexts
       case "LetDecl":
+      case "LetDestructure":
       case "ReturnStmt":
       case "IfStmt":
       case "UnlessStmt":

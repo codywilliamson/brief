@@ -70,9 +70,17 @@ async function runSingleTest(
     });
 
     // run program body
+    // successful completion wraps as Ok, runtime errors wrap as failed
+    // this enables the `expect await run() to be ok/failed` pattern
     let programResult: BriefValue = null;
     try {
-      programResult = await interp.run(program);
+      const rawResult = await interp.run(program);
+      // if the program explicitly returned a Result, use it directly
+      if (rawResult !== null && typeof rawResult === "object" && !Array.isArray(rawResult) && "kind" in rawResult) {
+        programResult = rawResult;
+      } else {
+        programResult = { kind: "ok", value: rawResult } as BriefResult;
+      }
     } catch (e) {
       if (e instanceof BriefRuntimeError) {
         programResult = { kind: "failed", reason: e.message } as BriefResult;

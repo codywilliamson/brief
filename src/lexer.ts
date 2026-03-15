@@ -163,7 +163,22 @@ export function tokenize(source: string): Token[] {
       if (peek() === "\n") {
         throw new LexerError("unterminated string", line, startCol);
       }
-      str += advance();
+      if (peek() === "\\") {
+        advance(); // skip backslash
+        const esc = advance();
+        switch (esc) {
+          case "n": str += "\n"; break;
+          case "t": str += "\t"; break;
+          case "r": str += "\r"; break;
+          case "\\": str += "\\"; break;
+          case '"': str += '"'; break;
+          case "{": str += "{"; break;
+          case "}": str += "}"; break;
+          default: str += "\\" + esc; break;
+        }
+      } else {
+        str += advance();
+      }
     }
     if (pos >= source.length) {
       throw new LexerError("unterminated string", line, startCol);

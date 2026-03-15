@@ -196,4 +196,32 @@ if true {
   it("tokenizes print keyword", () => {
     expect(types("print")).toEqual([TokenType.Print]);
   });
+
+  it("tokenizes set keyword", () => {
+    expect(types("set x = 1")).toEqual([
+      TokenType.Set, TokenType.Identifier, TokenType.Equal, TokenType.Number,
+    ]);
+  });
+
+  describe("string escape sequences", () => {
+    it("handles \\n escape", () => {
+      expect(values('"hello\\nworld"')).toEqual(["hello\nworld"]);
+    });
+
+    it("handles \\t escape", () => {
+      expect(values('"col1\\tcol2"')).toEqual(["col1\tcol2"]);
+    });
+
+    it("handles \\\\ escape", () => {
+      expect(values('"back\\\\slash"')).toEqual(["back\\slash"]);
+    });
+
+    it("handles escaped quotes", () => {
+      expect(values('"say \\"hello\\""')).toEqual(['say "hello"']);
+    });
+
+    it("handles escaped braces", () => {
+      expect(values('"literal \\{brace\\}"')).toEqual(["literal {brace}"]);
+    });
+  });
 });

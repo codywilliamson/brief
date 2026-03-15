@@ -93,8 +93,24 @@ export class Parser {
     return { kind: "ExprStmt", expr, line: expr.line } as AST.ExprStmt;
   }
 
-  private parseLetDecl(): AST.LetDecl {
+  private parseLetDecl(): AST.LetDecl | AST.LetDestructure {
     const tok = this.advance(); // consume 'let'
+
+    // destructuring: let [a, b, c] = expr
+    if (this.check(TokenType.LeftBracket)) {
+      this.advance(); // consume '['
+      const names: string[] = [];
+      names.push(this.expect(TokenType.Identifier, "expected variable name in destructuring").value);
+      while (this.match(TokenType.Comma)) {
+        names.push(this.expect(TokenType.Identifier, "expected variable name in destructuring").value);
+      }
+      this.expect(TokenType.RightBracket, "expected ']' in destructuring pattern");
+      this.expect(TokenType.Equal, "expected '=' in let declaration");
+      this.skipNewlines();
+      const value = this.parseExpression();
+      return { kind: "LetDestructure", names, value, line: tok.line };
+    }
+
     const name = this.expect(TokenType.Identifier, "expected variable name").value;
 
     let typeAnnotation: string | undefined;

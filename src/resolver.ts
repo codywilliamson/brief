@@ -35,6 +35,7 @@ const BUILTINS = new Set([
   "Ok", "failed", "args", "at",
   "contains", "startsWith", "endsWith", "replace",
   "toUpper", "toLower", "concat", "push", "range", "typeOf", "keys",
+  "flat", "reverse", "sort", "unique", "indexOf",
 ]);
 
 export function resolve(program: Program): ResolveResult {
@@ -92,6 +93,11 @@ function resolveNode(
     case "LetDecl": {
       resolveNode(node.value, scope, permissions, errors);
       scope.names.add(node.name);
+      break;
+    }
+    case "LetDestructure": {
+      resolveNode(node.value, scope, permissions, errors);
+      for (const name of node.names) scope.names.add(name);
       break;
     }
     case "SetStmt": {

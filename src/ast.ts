@@ -4,6 +4,7 @@ export type Node =
   | Program
   | AllowBlock
   | LetDecl
+  | LetDestructure
   | SetStmt
   | FnDecl
   | ReturnStmt
@@ -56,6 +57,13 @@ export interface LetDecl {
   kind: "LetDecl";
   name: string;
   typeAnnotation?: string;
+  value: Node;
+  line: number;
+}
+
+export interface LetDestructure {
+  kind: "LetDestructure";
+  names: string[];
   value: Node;
   line: number;
 }

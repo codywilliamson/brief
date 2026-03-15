@@ -30,8 +30,8 @@ export function briefJoin(arr: BriefValue, delimiter: BriefValue): string {
   return arr.map(briefToString).join(delimiter);
 }
 
-export function briefSlice(str: BriefValue, start: BriefValue, end: BriefValue): string {
-  if (typeof str !== "string") throw new Error(`slice() expects string, got ${typeof str}`);
+export function briefSlice(str: BriefValue, start: BriefValue, end: BriefValue): BriefValue {
+  if (typeof str !== "string" && !Array.isArray(str)) throw new Error(`slice() expects string or array, got ${typeof str}`);
   if (typeof start !== "number") throw new Error(`slice() start must be number`);
   if (typeof end !== "number") throw new Error(`slice() end must be number`);
   return str.slice(start, end);
@@ -139,6 +139,46 @@ export function briefKeys(value: BriefValue): BriefValue[] {
   throw new Error(`keys() expects array`);
 }
 
+export function briefFlat(arr: BriefValue): BriefValue[] {
+  if (!Array.isArray(arr)) throw new Error(`flat() expects array, got ${typeof arr}`);
+  const result: BriefValue[] = [];
+  for (const item of arr) {
+    if (Array.isArray(item)) result.push(...item);
+    else result.push(item);
+  }
+  return result;
+}
+
+export function briefReverse(arr: BriefValue): BriefValue[] {
+  if (!Array.isArray(arr)) throw new Error(`reverse() expects array, got ${typeof arr}`);
+  return [...arr].reverse();
+}
+
+export function briefSort(arr: BriefValue): BriefValue[] {
+  if (!Array.isArray(arr)) throw new Error(`sort() expects array, got ${typeof arr}`);
+  return [...arr].sort((a, b) => {
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+export function briefUnique(arr: BriefValue): BriefValue[] {
+  if (!Array.isArray(arr)) throw new Error(`unique() expects array, got ${typeof arr}`);
+  const result: BriefValue[] = [];
+  for (const item of arr) {
+    if (!result.some(v => briefEquals(v, item))) result.push(item);
+  }
+  return result;
+}
+
+export function briefIndexOf(arr: BriefValue, value: BriefValue): number {
+  if (!Array.isArray(arr)) throw new Error(`indexOf() expects array, got ${typeof arr}`);
+  for (let i = 0; i < arr.length; i++) {
+    if (briefEquals(arr[i], value)) return i;
+  }
+  return -1;
+}
+
 function briefEquals(a: BriefValue, b: BriefValue): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -167,4 +207,9 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   range: (s, e) => briefRange(s, e),
   typeOf: (v) => briefTypeOf(v),
   keys: (v) => briefKeys(v),
+  flat: (v) => briefFlat(v),
+  reverse: (v) => briefReverse(v),
+  sort: (v) => briefSort(v),
+  unique: (v) => briefUnique(v),
+  indexOf: (a, v) => briefIndexOf(a, v),
 };

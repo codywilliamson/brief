@@ -440,6 +440,61 @@ set x = 42`)).rejects.toThrow("cannot set undefined variable");
     });
   });
 
+  describe("let destructuring", () => {
+    it("destructures array into variables", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet [a, b] = [1, 2]\nprint(a)\nprint(b)", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([1, 2]);
+    });
+
+    it("destructures three element array", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet [x, y, z] = [10, 20, 30]\nprint(x)\nprint(y)\nprint(z)", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([10, 20, 30]);
+    });
+
+    it("errors if value is not an array", async () => {
+      await expect(run('allow\n  fs.read\nlet [a, b] = 42')).rejects.toThrow(
+        "destructuring requires an array value",
+      );
+    });
+
+    it("assigns null for missing elements", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet [a, b, c] = [1]\nprint(a)\nprint(b)\nprint(c)", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([1, null, null]);
+    });
+
+    it("ignores extra elements", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet [a, b] = [1, 2, 3, 4]\nprint(a)\nprint(b)", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([1, 2]);
+    });
+
+    it("works with expression values", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+async fn getPair() {
+  return [100, 200]
+}
+let [a, b] = getPair()
+print(a)
+print(b)`, {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([100, 200]);
+    });
+  });
+
   describe("expanded stdlib", () => {
     it("contains() works on strings", async () => {
       const prints: BriefValue[] = [];
@@ -503,6 +558,62 @@ set x = 42`)).rejects.toThrow("cannot set undefined variable");
         printFn: (...a) => prints.push(...a),
       });
       expect(prints).toEqual([[0, 1, 2, 3, 4]]);
+    });
+
+    it("slice() works on arrays", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(slice([1, 2, 3, 4], 1, 3))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[2, 3]]);
+    });
+
+    it("flat() flattens one level", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(flat([[1, 2], [3, 4]]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[1, 2, 3, 4]]);
+    });
+
+    it("reverse() reverses array", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(reverse([1, 2, 3]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[3, 2, 1]]);
+    });
+
+    it("sort() sorts numbers numerically", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(sort([3, 1, 2]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[1, 2, 3]]);
+    });
+
+    it("sort() sorts strings alphabetically", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(sort(["banana", "apple", "cherry"]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([["apple", "banana", "cherry"]]);
+    });
+
+    it("unique() deduplicates", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(unique([1, 2, 2, 3, 1]))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([[1, 2, 3]]);
+    });
+
+    it("indexOf() returns index", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint(indexOf([10, 20, 30], 20))\nprint(indexOf([10, 20, 30], 99))', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([1, -1]);
     });
 
     it("typeOf() returns type strings", async () => {

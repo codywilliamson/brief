@@ -1,0 +1,39 @@
+allow
+  fs.read
+  ai.complete
+
+# a script with comprehensive test coverage
+
+let data =
+  await ask fs.read("input.txt")
+  or fail "could not read input"
+
+return failed("empty input") if trim(data) == ""
+
+let result =
+  await ask ai.complete("summarize: {data}")
+  or fail "ai failed"
+
+print(result)
+
+test "succeeds with valid input" {
+  mock fs.read("input.txt") returns Ok("some content")
+  mock ai.complete returns Ok("summary of content")
+  expect await run() to be ok
+}
+
+test "fails on missing file" {
+  mock fs.read("input.txt") returns failed("not found")
+  expect await run() to be failed("could not read input")
+}
+
+test "fails on empty input" {
+  mock fs.read("input.txt") returns Ok("   ")
+  expect await run() to be failed("empty input")
+}
+
+test "fails on ai error" {
+  mock fs.read("input.txt") returns Ok("content")
+  mock ai.complete returns failed("rate limited")
+  expect await run() to be failed("ai failed")
+}
