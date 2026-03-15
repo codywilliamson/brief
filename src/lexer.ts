@@ -208,9 +208,8 @@ export function tokenize(source: string): Token[] {
     while (pos < source.length && isIdentChar(peek())) {
       id += advance();
     }
-    const kwType = KEYWORDS[id];
-    if (kwType !== undefined) {
-      return token(kwType, id, startCol);
+    if (Object.hasOwn(KEYWORDS, id)) {
+      return token(KEYWORDS[id], id, startCol);
     }
     return token(TokenType.Identifier, id, startCol);
   }
