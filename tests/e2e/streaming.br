@@ -1,0 +1,13 @@
+allow
+  ai.stream
+
+for await chunk from ask ai.stream("tell me a story") {
+  print(chunk)
+}
+
+print("done streaming")
+
+test "streaming works" {
+  mock ai.stream returns Ok("once upon a time")
+  expect await run() to be ok
+}

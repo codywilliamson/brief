@@ -1,0 +1,14 @@
+allow
+  fs.read
+
+# this script only has fs.read permission
+let data =
+  await ask fs.read("file.txt")
+  or fail "read failed"
+
+print(data)
+
+test "read succeeds with permission" {
+  mock fs.read("file.txt") returns Ok("content")
+  expect await run() to be ok
+}

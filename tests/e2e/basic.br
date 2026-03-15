@@ -1,0 +1,61 @@
+allow
+  fs.read
+  ai.complete
+
+# basic variable and function test
+let greeting = "hello world"
+let count = 42
+let flag = true
+
+# test arithmetic
+let sum = 2 + 3 * 4
+let concat = "hello" + " " + "world"
+
+# test control flow
+if count > 10 {
+  print("count is large")
+}
+
+unless flag == false {
+  print("flag is true")
+}
+
+# test function definition
+async fn add(a, b) {
+  return a + b
+}
+
+let result = add(10, 20)
+print("10 + 20 = {result}")
+
+# test for loop
+let items = [1, 2, 3, 4, 5]
+for item in items {
+  print(item)
+}
+
+# test stdlib
+print(len("hello"))
+print(trim("  spaced  "))
+let parts = split("a,b,c", ",")
+print(join(parts, " | "))
+
+# test when expression
+let r = Ok("success")
+when r {
+  ok(v) => print("got: {v}")
+  failed(e) => print("error: {e}")
+}
+
+# test postfix if
+print("conditional") if true
+
+print("done")
+
+test "basic arithmetic works" {
+  expect 2 + 3 to be 5
+}
+
+test "string operations work" {
+  expect len("hello") to be 5
+}

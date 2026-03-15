@@ -1,0 +1,19 @@
+allow
+  fs.read
+
+# test error handling with or fail
+let data =
+  await ask fs.read("topic.txt")
+  or fail "could not read topic file"
+
+print(data)
+
+test "fails on missing file" {
+  mock fs.read("topic.txt") returns failed("not found")
+  expect await run() to be failed("could not read topic file")
+}
+
+test "succeeds with valid file" {
+  mock fs.read("topic.txt") returns Ok("hello")
+  expect await run() to be ok
+}
