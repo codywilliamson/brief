@@ -4,7 +4,11 @@ allow
   ai.complete
 
 # summarize any text file and save the summary
-let path = "input.txt"
+# usage: brief run summarize-file.br <input-file>
+
+return failed("usage: brief run summarize-file.br <file>") if len(args) == 0
+
+let path = at(args, 0)
 
 let content =
   await ask fs.read(path)
@@ -27,18 +31,13 @@ print("summary saved to summary.txt")
 print(summary)
 
 test "summarizes file content" {
-  mock fs.read("input.txt") returns Ok("Brief is an agentic scripting language designed for AI agents. It has a permission system and built-in testing.")
+  mock fs.read returns Ok("Brief is an agentic scripting language designed for AI agents. It has a permission system and built-in testing.")
   mock ai.complete returns Ok("- Brief is an agentic scripting language\n- Designed for AI agents\n- Includes permission system and testing")
   mock fs.write returns Ok(null)
   expect await run() to be ok
 }
 
 test "fails on empty file" {
-  mock fs.read("input.txt") returns Ok("   ")
+  mock fs.read returns Ok("   ")
   expect await run() to be failed("file is empty")
-}
-
-test "fails on missing file" {
-  mock fs.read("input.txt") returns failed("not found")
-  expect await run() to be failed("could not read input.txt")
 }

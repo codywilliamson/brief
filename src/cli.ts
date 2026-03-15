@@ -11,9 +11,10 @@ import { httpFetch, httpPost } from "./stdlib/http.js";
 import { aiComplete, aiStream, aiConverse, aiToolUse } from "./stdlib/ai.js";
 import { BriefRuntimeError, BriefPermissionError } from "./result.js";
 
-const args = process.argv.slice(2);
-const command = args[0];
-const file = args[1];
+const cliArgs = process.argv.slice(2);
+const command = cliArgs[0];
+const file = cliArgs[1];
+const scriptArgs = cliArgs.slice(2); // args passed to the .br script
 
 function createDefaultRegistry() {
   const reg = createToolRegistry();
@@ -46,7 +47,7 @@ async function main() {
     try {
       const source = fs.readFileSync(file, "utf-8");
       const registry = createDefaultRegistry();
-      const result = await runBrief({ source, registry });
+      const result = await runBrief({ source, registry, scriptArgs });
     } catch (e) {
       if (e instanceof BriefRuntimeError) {
         console.error(e.format());

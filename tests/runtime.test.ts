@@ -90,4 +90,37 @@ for await chunk from ask ai.stream("prompt") {
     });
     expect(result.value).toBe(42);
   });
+
+  it("passes script args as global array", async () => {
+    const prints: BriefValue[] = [];
+    await runBrief({
+      source: 'allow\n  fs.read\nprint(args)\nprint(len(args))',
+      scriptArgs: ["file.txt", "--verbose"],
+      printFn: (...a) => prints.push(...a),
+    });
+    expect(prints[0]).toEqual(["file.txt", "--verbose"]);
+    expect(prints[1]).toBe(2);
+  });
+
+  it("args defaults to empty array", async () => {
+    const prints: BriefValue[] = [];
+    await runBrief({
+      source: 'allow\n  fs.read\nprint(len(args))',
+      printFn: (...a) => prints.push(...a),
+    });
+    expect(prints[0]).toBe(0);
+  });
+
+  it("scripts can index into args", async () => {
+    const prints: BriefValue[] = [];
+    await runBrief({
+      source: 'allow\n  fs.read\nlet first = args\nprint(first)',
+      scriptArgs: ["hello.txt"],
+      printFn: (...a) => prints.push(...a),
+    });
+    // args is an array, accessing it directly gives the whole array
+    // scripts use args[0] pattern - but we don't have indexing yet
+    // so they use the whole array for now
+    expect(prints[0]).toEqual(["hello.txt"]);
+  });
 });

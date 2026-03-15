@@ -28,6 +28,7 @@ export interface InterpreterOptions {
   streamHandler?: StreamToolHandler;
   printFn?: (...args: BriefValue[]) => void;
   sourceLines?: string[];
+  scriptArgs?: string[];
 }
 
 export class Environment {
@@ -83,6 +84,9 @@ export class Interpreter {
     this.globalEnv.set("print", "print" as any);
     this.globalEnv.set("Ok", "Ok" as any);
     this.globalEnv.set("failed", "failed" as any);
+
+    // inject script args as a global array
+    this.globalEnv.set("args", (options.scriptArgs ?? []) as BriefValue);
   }
 
   async run(program: Program): Promise<BriefValue> {

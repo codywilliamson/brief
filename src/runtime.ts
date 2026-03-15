@@ -41,6 +41,7 @@ export interface RuntimeOptions {
   mocks?: MockEntry[];
   printFn?: (...args: BriefValue[]) => void;
   testMode?: boolean;
+  scriptArgs?: string[];
 }
 
 export interface RuntimeResult {
@@ -50,7 +51,7 @@ export interface RuntimeResult {
 }
 
 export async function runBrief(options: RuntimeOptions): Promise<RuntimeResult> {
-  const { source, registry, mocks, printFn, testMode } = options;
+  const { source, registry, mocks, printFn, testMode, scriptArgs } = options;
 
   const program = parse(source);
   const resolved = resolve(program);
@@ -124,6 +125,7 @@ export async function runBrief(options: RuntimeOptions): Promise<RuntimeResult> 
     streamHandler,
     printFn: printFn ?? (testMode ? () => {} : undefined),
     sourceLines: source.split("\n"),
+    scriptArgs,
   });
   interpRef = interp;
 

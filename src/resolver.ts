@@ -32,7 +32,7 @@ const VALID_PERMISSIONS = new Set([
 const BUILTINS = new Set([
   "print", "len", "trim", "split", "join", "slice",
   "parseInt", "parseFloat", "toString",
-  "Ok", "failed",
+  "Ok", "failed", "args", "at",
 ]);
 
 export function resolve(program: Program): ResolveResult {

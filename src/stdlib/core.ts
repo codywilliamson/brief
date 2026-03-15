@@ -63,6 +63,13 @@ export function briefToString(value: BriefValue): string {
   return String(value);
 }
 
+export function briefAt(arr: BriefValue, index: BriefValue): BriefValue {
+  if (!Array.isArray(arr)) throw new Error(`at() expects array, got ${typeof arr}`);
+  if (typeof index !== "number") throw new Error(`at() index must be number`);
+  if (index < 0 || index >= arr.length) return null;
+  return arr[index];
+}
+
 export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefValue> = {
   len: (v) => briefLen(v),
   trim: (v) => briefTrim(v),
@@ -72,4 +79,5 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   parseInt: (s) => briefParseInt(s),
   parseFloat: (s) => briefParseFloat(s),
   toString: (v) => briefToString(v),
+  at: (a, i) => briefAt(a, i),
 };
