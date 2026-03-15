@@ -33,6 +33,8 @@ const BUILTINS = new Set([
   "print", "len", "trim", "split", "join", "slice",
   "parseInt", "parseFloat", "toString",
   "Ok", "failed", "args", "at",
+  "contains", "startsWith", "endsWith", "replace",
+  "toUpper", "toLower", "concat", "push", "range", "typeOf", "keys",
 ]);
 
 export function resolve(program: Program): ResolveResult {
@@ -190,6 +192,11 @@ function resolveNode(
     }
     case "MemberExpr": {
       resolveNode(node.object, scope, permissions, errors);
+      break;
+    }
+    case "IndexExpr": {
+      resolveNode(node.object, scope, permissions, errors);
+      resolveNode(node.index, scope, permissions, errors);
       break;
     }
     case "OrFailExpr": {

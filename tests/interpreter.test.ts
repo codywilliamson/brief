@@ -317,6 +317,56 @@ print(results)`,
     });
   });
 
+  describe("bracket indexing", () => {
+    it("accesses array element by literal index", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet arr = [1, 2, 3]\nprint(arr[0])", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([1]);
+    });
+
+    it("accesses array element by variable index", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet arr = [10, 20, 30]\nlet i = 1\nprint(arr[i])", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([20]);
+    });
+
+    it("accesses string character by index", async () => {
+      const prints: BriefValue[] = [];
+      await run('allow\n  fs.read\nprint("hello"[0])', {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual(["h"]);
+    });
+
+    it("returns null for out of bounds index", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet arr = [1, 2, 3]\nprint(arr[5])", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([null]);
+    });
+
+    it("supports nested array indexing", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet arr = [[1, 2], [3, 4]]\nprint(arr[0][1])", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([2]);
+    });
+
+    it("supports indexing in expressions", async () => {
+      const prints: BriefValue[] = [];
+      await run("allow\n  fs.read\nlet arr = [10, 20, 30]\nprint(arr[0] + arr[1])", {
+        printFn: (...a) => prints.push(...a),
+      });
+      expect(prints).toEqual([30]);
+    });
+  });
+
   describe("return", () => {
     it("returns from top level", async () => {
       const result = await run("allow\n  fs.read\nreturn 42");

@@ -285,6 +285,23 @@ export class Interpreter {
         return await this.callFunction(callee, args, node.line, env);
       }
 
+      case "IndexExpr": {
+        const obj = await this.evaluate(node.object, env);
+        const idx = await this.evaluate(node.index, env);
+        if (typeof idx !== "number") {
+          throw new BriefRuntimeError("index must be a number", node.line);
+        }
+        if (Array.isArray(obj)) {
+          if (idx < 0 || idx >= obj.length) return null;
+          return obj[idx];
+        }
+        if (typeof obj === "string") {
+          if (idx < 0 || idx >= obj.length) return null;
+          return obj[idx];
+        }
+        throw new BriefRuntimeError("indexing requires an array or string", node.line);
+      }
+
       case "MemberExpr": {
         const obj = await this.evaluate(node.object, env);
         if (Array.isArray(obj)) {

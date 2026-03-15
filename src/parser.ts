@@ -522,6 +522,11 @@ export class Parser {
         }
         this.expect(TokenType.RightParen, "expected ')'");
         expr = { kind: "CallExpr", callee: expr, args, line: expr.line } as AST.CallExpr;
+      } else if (this.check(TokenType.LeftBracket)) {
+        this.advance(); // consume '['
+        const index = this.parseExpression();
+        this.expect(TokenType.RightBracket, "expected ']'");
+        expr = { kind: "IndexExpr", object: expr, index, line: expr.line } as AST.IndexExpr;
       } else if (this.check(TokenType.Dot)) {
         this.advance(); // consume '.'
         const prop = this.expect(TokenType.Identifier, "expected property name").value;

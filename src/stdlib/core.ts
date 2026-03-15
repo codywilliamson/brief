@@ -70,6 +70,82 @@ export function briefAt(arr: BriefValue, index: BriefValue): BriefValue {
   return arr[index];
 }
 
+export function briefContains(str: BriefValue, search: BriefValue): boolean {
+  if (typeof str === "string" && typeof search === "string") return str.includes(search);
+  if (Array.isArray(str)) return str.some(v => briefEquals(v, search));
+  throw new Error(`contains() expects string or array`);
+}
+
+export function briefStartsWith(str: BriefValue, prefix: BriefValue): boolean {
+  if (typeof str !== "string" || typeof prefix !== "string") throw new Error(`startsWith() expects strings`);
+  return str.startsWith(prefix);
+}
+
+export function briefEndsWith(str: BriefValue, suffix: BriefValue): boolean {
+  if (typeof str !== "string" || typeof suffix !== "string") throw new Error(`endsWith() expects strings`);
+  return str.endsWith(suffix);
+}
+
+export function briefReplace(str: BriefValue, search: BriefValue, replacement: BriefValue): string {
+  if (typeof str !== "string") throw new Error(`replace() expects string`);
+  if (typeof search !== "string") throw new Error(`replace() search must be string`);
+  if (typeof replacement !== "string") throw new Error(`replace() replacement must be string`);
+  return str.replaceAll(search, replacement);
+}
+
+export function briefToUpper(str: BriefValue): string {
+  if (typeof str !== "string") throw new Error(`toUpper() expects string`);
+  return str.toUpperCase();
+}
+
+export function briefToLower(str: BriefValue): string {
+  if (typeof str !== "string") throw new Error(`toLower() expects string`);
+  return str.toLowerCase();
+}
+
+export function briefConcat(...arrays: BriefValue[]): BriefValue[] {
+  const result: BriefValue[] = [];
+  for (const a of arrays) {
+    if (Array.isArray(a)) result.push(...a);
+    else result.push(a);
+  }
+  return result;
+}
+
+export function briefPush(arr: BriefValue, ...items: BriefValue[]): BriefValue[] {
+  if (!Array.isArray(arr)) throw new Error(`push() expects array`);
+  return [...arr, ...items];
+}
+
+export function briefRange(start: BriefValue, end: BriefValue): BriefValue[] {
+  if (typeof start !== "number" || typeof end !== "number") throw new Error(`range() expects numbers`);
+  const result: BriefValue[] = [];
+  for (let i = start; i < end; i++) result.push(i);
+  return result;
+}
+
+export function briefTypeOf(value: BriefValue): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return "string";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (Array.isArray(value)) return "array";
+  if (value && typeof value === "object" && "kind" in value) return "result";
+  return "unknown";
+}
+
+export function briefKeys(value: BriefValue): BriefValue[] {
+  if (Array.isArray(value)) return value.map((_, i) => i as BriefValue);
+  throw new Error(`keys() expects array`);
+}
+
+function briefEquals(a: BriefValue, b: BriefValue): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  return a === b;
+}
+
 export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefValue> = {
   len: (v) => briefLen(v),
   trim: (v) => briefTrim(v),
@@ -80,4 +156,15 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   parseFloat: (s) => briefParseFloat(s),
   toString: (v) => briefToString(v),
   at: (a, i) => briefAt(a, i),
+  contains: (s, search) => briefContains(s, search),
+  startsWith: (s, p) => briefStartsWith(s, p),
+  endsWith: (s, p) => briefEndsWith(s, p),
+  replace: (s, search, rep) => briefReplace(s, search, rep),
+  toUpper: (s) => briefToUpper(s),
+  toLower: (s) => briefToLower(s),
+  concat: (...args) => briefConcat(...args),
+  push: (arr, ...items) => briefPush(arr, ...items),
+  range: (s, e) => briefRange(s, e),
+  typeOf: (v) => briefTypeOf(v),
+  keys: (v) => briefKeys(v),
 };

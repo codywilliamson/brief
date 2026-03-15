@@ -21,6 +21,7 @@ export type Node =
   | UnaryExpr
   | CallExpr
   | MemberExpr
+  | IndexExpr
   | AssignExpr
   | IdentExpr
   | NumberLit
@@ -182,6 +183,13 @@ export interface MemberExpr {
   kind: "MemberExpr";
   object: Node;
   property: string;
+  line: number;
+}
+
+export interface IndexExpr {
+  kind: "IndexExpr";
+  object: Node;
+  index: Node;
   line: number;
 }
 
