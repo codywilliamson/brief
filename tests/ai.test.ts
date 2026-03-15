@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { aiComplete, aiStream, setClient } from "../src/stdlib/ai.js";
+import { aiComplete, aiStream, aiConverse, aiToolUse, setClient } from "../src/stdlib/ai.js";
 import type { BriefResult } from "../src/stdlib/core.js";
 
 // mock the anthropic client
@@ -377,5 +377,258 @@ let response =
   or fail "ai broke"`,
       registry: reg,
     })).rejects.toThrow("ai broke");
+  });
+});
+
+describe("ai.converse", () => {
+  afterEach(() => setClient(null));
+
+  it("sends multi-turn messages", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [{ type: "text", text: "turn 3 response" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      },
+    });
+    setClient(mock);
+
+    const result = await aiConverse([
+      "user", "hello",
+      "assistant", "hi there",
+      "user", "how are you?",
+    ]);
+
+    expect(result).toEqual({ kind: "ok", value: "turn 3 response" });
+    const call = mock.messages.create.mock.calls[0][0];
+    expect(call.messages).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "hi there" },
+      { role: "user", content: "how are you?" },
+    ]);
+  });
+
+  it("rejects non-array input", async () => {
+    const result = await aiConverse("not an array");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects empty messages", async () => {
+    const result = await aiConverse([]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("at least one message");
+  });
+
+  it("rejects invalid role", async () => {
+    const result = await aiConverse(["system", "test"]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("invalid message role");
+  });
+
+  it("accepts config", async () => {
+    const mock = createMockClient();
+    setClient(mock);
+
+    await aiConverse(
+      ["user", "test"],
+      ["model", "claude-opus-4-20250514", "system", "be brief"],
+    );
+
+    const call = mock.messages.create.mock.calls[0][0];
+    expect(call.model).toBe("claude-opus-4-20250514");
+    expect(call.system).toBe("be brief");
+  });
+
+  it("works end-to-end in Brief", async () => {
+    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
+
+    const mock = createMockClient({
+      createResponse: {
+        content: [{ type: "text", text: "multi-turn works" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      },
+    });
+    setClient(mock);
+
+    const reg = createToolRegistry();
+    reg.register("ai.converse", aiConverse);
+
+    const prints: any[] = [];
+    await runBrief({
+      source: `allow
+  ai.converse
+
+let messages = ["user", "hello", "assistant", "hi", "user", "tell me more"]
+let response =
+  await ask ai.converse(messages)
+  or fail "converse failed"
+
+print(response)`,
+      registry: reg,
+      printFn: (...a) => prints.push(...a),
+    });
+
+    expect(prints).toEqual(["multi-turn works"]);
+  });
+});
+
+describe("ai.toolUse", () => {
+  afterEach(() => setClient(null));
+
+  it("sends tools to API", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [
+          { type: "tool_use", name: "getWeather", id: "call_123", input: { city: "SF" } },
+        ],
+        role: "assistant",
+        stop_reason: "tool_use",
+      },
+    });
+    setClient(mock);
+
+    const tools = [
+      ["getWeather", "get current weather", ["city", "string", "city name"]],
+    ];
+
+    const result = await aiToolUse("what's the weather in SF?", tools);
+    expect(result.kind).toBe("ok");
+
+    const blocks = (result as any).value;
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0][0]).toBe("tool_use");
+    expect(blocks[0][1]).toBe("getWeather");
+    expect(blocks[0][2]).toBe("call_123");
+    expect(blocks[0][3]).toEqual(["city", "SF"]);
+  });
+
+  it("sends correct tool schema to API", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [{ type: "text", text: "no tools needed" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      },
+    });
+    setClient(mock);
+
+    const tools = [
+      ["searchFlights", "search for flights", ["from", "string", "origin"], ["to", "string", "destination"]],
+    ];
+
+    await aiToolUse("test", tools);
+    const call = mock.messages.create.mock.calls[0][0];
+    expect(call.tools).toHaveLength(1);
+    expect(call.tools[0].name).toBe("searchFlights");
+    expect(call.tools[0].description).toBe("search for flights");
+    expect(call.tools[0].input_schema.properties).toEqual({
+      from: { type: "string", description: "origin" },
+      to: { type: "string", description: "destination" },
+    });
+    expect(call.tools[0].input_schema.required).toEqual(["from", "to"]);
+  });
+
+  it("handles text-only response", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [{ type: "text", text: "I can help with that" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      },
+    });
+    setClient(mock);
+
+    const result = await aiToolUse("test", [["tool1", "desc"]]);
+    expect(result.kind).toBe("ok");
+    const blocks = (result as any).value;
+    expect(blocks[0]).toEqual(["text", "I can help with that"]);
+  });
+
+  it("handles mixed text and tool_use response", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [
+          { type: "text", text: "Let me check" },
+          { type: "tool_use", name: "lookup", id: "call_456", input: { query: "test" } },
+        ],
+        role: "assistant",
+        stop_reason: "tool_use",
+      },
+    });
+    setClient(mock);
+
+    const result = await aiToolUse("test", [["lookup", "look something up", ["query", "string", "search query"]]]);
+    expect(result.kind).toBe("ok");
+    const blocks = (result as any).value;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0][0]).toBe("text");
+    expect(blocks[1][0]).toBe("tool_use");
+  });
+
+  it("rejects non-string prompt", async () => {
+    const result = await aiToolUse(42, []);
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects non-array tools", async () => {
+    const result = await aiToolUse("test", "not array");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects malformed tool definition", async () => {
+    const result = await aiToolUse("test", [["onlyName"]]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("each tool must be");
+  });
+
+  it("handles API error", async () => {
+    const mock = createMockClient({ createError: new Error("quota exceeded") });
+    setClient(mock);
+
+    const result = await aiToolUse("test", [["tool1", "desc"]]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("quota exceeded");
+  });
+
+  it("works end-to-end in Brief", async () => {
+    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
+
+    const mock = createMockClient({
+      createResponse: {
+        content: [
+          { type: "tool_use", name: "getWeather", id: "call_789", input: { city: "NYC" } },
+        ],
+        role: "assistant",
+        stop_reason: "tool_use",
+      },
+    });
+    setClient(mock);
+
+    const reg = createToolRegistry();
+    reg.register("ai.toolUse", aiToolUse);
+
+    const prints: any[] = [];
+    await runBrief({
+      source: `allow
+  ai.toolUse
+
+let tools = [
+  ["getWeather", "get weather", ["city", "string", "city name"]]
+]
+
+let result =
+  await ask ai.toolUse("weather in NYC?", tools)
+  or fail "tool use failed"
+
+print(result)`,
+      registry: reg,
+      printFn: (...a) => prints.push(...a),
+    });
+
+    expect(prints).toHaveLength(1);
+    const blocks = prints[0] as any[];
+    expect(blocks[0][0]).toBe("tool_use");
+    expect(blocks[0][1]).toBe("getWeather");
   });
 });

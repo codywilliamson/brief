@@ -8,7 +8,7 @@ import { runBrief, createToolRegistry } from "./runtime.js";
 import { runTests } from "./test-runner.js";
 import { fsRead, fsWrite } from "./stdlib/fs.js";
 import { httpFetch, httpPost } from "./stdlib/http.js";
-import { aiComplete, aiStream } from "./stdlib/ai.js";
+import { aiComplete, aiStream, aiConverse, aiToolUse } from "./stdlib/ai.js";
 import { BriefRuntimeError, BriefPermissionError } from "./result.js";
 
 const args = process.argv.slice(2);
@@ -23,6 +23,8 @@ function createDefaultRegistry() {
   reg.register("http.post", httpPost);
   reg.register("ai.complete", aiComplete);
   reg.registerStream("ai.stream", aiStream);
+  reg.register("ai.converse", aiConverse);
+  reg.register("ai.toolUse", aiToolUse);
   return reg;
 }
 

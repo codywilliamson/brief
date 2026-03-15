@@ -26,7 +26,7 @@ export interface ResolveResult {
 const VALID_PERMISSIONS = new Set([
   "fs.read", "fs.write",
   "http.fetch", "http.post",
-  "ai.complete", "ai.stream",
+  "ai.complete", "ai.stream", "ai.converse", "ai.toolUse",
 ]);
 
 const BUILTINS = new Set([
