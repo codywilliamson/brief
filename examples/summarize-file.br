@@ -1,0 +1,44 @@
+allow
+  fs.read
+  fs.write
+  ai.complete
+
+# summarize any text file and save the summary
+let path = "input.txt"
+
+let content =
+  await ask fs.read(path)
+  or fail "could not read {path}"
+
+return failed("file is empty") if trim(content) == ""
+
+let wordCount = len(split(content, " "))
+print("read {wordCount} words from {path}")
+
+let config = ["system", "you are a concise summarizer. output only the summary, no preamble."]
+let summary =
+  await ask ai.complete("summarize the following text in 3-5 bullet points:\n\n{content}", config)
+  or fail "summarization failed"
+
+await ask fs.write("summary.txt", summary)
+  or fail "could not write summary"
+
+print("summary saved to summary.txt")
+print(summary)
+
+test "summarizes file content" {
+  mock fs.read("input.txt") returns Ok("Brief is an agentic scripting language designed for AI agents. It has a permission system and built-in testing.")
+  mock ai.complete returns Ok("- Brief is an agentic scripting language\n- Designed for AI agents\n- Includes permission system and testing")
+  mock fs.write returns Ok(null)
+  expect await run() to be ok
+}
+
+test "fails on empty file" {
+  mock fs.read("input.txt") returns Ok("   ")
+  expect await run() to be failed("file is empty")
+}
+
+test "fails on missing file" {
+  mock fs.read("input.txt") returns failed("not found")
+  expect await run() to be failed("could not read input.txt")
+}
