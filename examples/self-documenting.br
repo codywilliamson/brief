@@ -1,0 +1,105 @@
+allow
+  fs.read
+  fs.write
+  ai.complete
+
+# self-documenting: reads a brief script, generates documentation for it
+# usage: brief run examples/self-documenting.br <script.br>
+
+return failed("usage: brief run self-documenting.br <file.br>") if len(args) == 0
+
+let path = at(args, 0)
+
+let source =
+  await ask fs.read(path)
+  or fail "could not read {path}"
+
+return failed("empty file") if trim(source) == ""
+
+# extract the allow block permissions
+let lines = split(source, "\n")
+let permissions = []
+let inAllow = false
+
+for line in lines {
+  let trimmed = trim(line)
+  if trimmed == "allow" {
+    set inAllow = true
+  } else {
+    if inAllow {
+      if contains(trimmed, ".") {
+        set permissions = push(permissions, trimmed)
+      } else {
+        set inAllow = false
+      }
+    }
+  }
+}
+
+# extract function signatures
+let functions = []
+for line in lines {
+  let trimmed = trim(line)
+  if startsWith(trimmed, "async fn") {
+    set functions = push(functions, trimmed)
+  }
+}
+
+# extract test descriptions
+let tests = []
+for line in lines {
+  let trimmed = trim(line)
+  if startsWith(trimmed, "test ") {
+    let desc = replace(trimmed, "test ", "")
+    let desc = replace(desc, " {", "")
+    set tests = push(tests, desc)
+  }
+}
+
+# build context for AI
+let context = "Brief script at: {path}\n\n"
+let context = context + "Permissions: " + join(permissions, ", ") + "\n\n"
+
+if len(functions) > 0 {
+  set context = context + "Functions:\n"
+  for fn in functions {
+    set context = context + "  " + fn + "\n"
+  }
+  set context = context + "\n"
+}
+
+if len(tests) > 0 {
+  set context = context + "Tests:\n"
+  for t in tests {
+    set context = context + "  " + t + "\n"
+  }
+  set context = context + "\n"
+}
+
+set context = context + "Full source:\n" + source
+
+let config = ["system", "generate clear, concise markdown documentation for this Brief language script. include: purpose, permissions used, functions defined, usage examples, and test coverage."]
+
+let docs =
+  await ask ai.complete(context, config)
+  or fail "documentation generation failed"
+
+let outPath = replace(path, ".br", ".md")
+await ask fs.write(outPath, docs)
+  or fail "could not save docs"
+
+print("documentation saved to {outPath}")
+print("")
+print(docs)
+
+test "generates docs for a script" {
+  mock fs.read returns Ok("allow\n  fs.read\n\nlet x = 1\nprint(x)\n\ntest \"basic\" {\n  expect 1 to be 1\n}")
+  mock ai.complete returns Ok("# Script Documentation\n\nReads files and prints values.")
+  mock fs.write returns Ok(null)
+  expect await run() to be ok
+}
+
+test "fails on empty file" {
+  mock fs.read returns Ok("   ")
+  expect await run() to be failed("empty file")
+}
