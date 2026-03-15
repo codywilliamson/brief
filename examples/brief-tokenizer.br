@@ -1,0 +1,122 @@
+allow
+  fs.read
+
+# a simple tokenizer for brief source code, written in brief
+# this is the first step toward self-hosting
+
+return failed("usage: brief run brief-tokenizer.br <file.br>") if len(args) == 0
+
+let source =
+  await ask fs.read(args[0])
+  or fail "could not read {args[0]}"
+
+# tokenize the source
+let tokens = []
+let pos = 0
+let line = 1
+
+let keywords = [
+  "allow", "let", "set", "async", "fn", "return",
+  "if", "else", "unless", "until", "for", "in",
+  "with", "ctx", "await", "all", "ask", "or", "fail",
+  "when", "ok", "failed", "from", "test", "mock",
+  "expect", "to", "be", "returns", "print",
+  "true", "false", "null"
+]
+
+async fn isDigit(ch) {
+  return ch >= "0" && ch <= "9"
+}
+
+async fn isAlpha(ch) {
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch == "_"
+}
+
+async fn isAlphaNum(ch) {
+  return isAlpha(ch) || isDigit(ch)
+}
+
+# main tokenization loop
+until pos >= len(source) {
+  let ch = source[pos]
+
+  # skip whitespace
+  if ch == " " || ch == "\t" || ch == "\r" {
+    set pos = pos + 1
+  } else {
+    if ch == "\n" {
+      set tokens = push(tokens, ["NEWLINE", "\\n", line])
+      set pos = pos + 1
+      set line = line + 1
+    } else {
+      if ch == "#" {
+        # skip comment to end of line
+        let comment = ""
+        set pos = pos + 1
+        until pos >= len(source) || source[pos] == "\n" {
+          set comment = comment + source[pos]
+          set pos = pos + 1
+        }
+        set tokens = push(tokens, ["COMMENT", trim(comment), line])
+      } else {
+        if isDigit(ch) {
+          # number
+          let num = ""
+          until pos >= len(source) || !isDigit(source[pos]) {
+            set num = num + source[pos]
+            set pos = pos + 1
+          }
+          set tokens = push(tokens, ["NUMBER", num, line])
+        } else {
+          if isAlpha(ch) {
+            # identifier or keyword
+            let word = ""
+            until pos >= len(source) || !isAlphaNum(source[pos]) {
+              set word = word + source[pos]
+              set pos = pos + 1
+            }
+            if contains(keywords, word) {
+              set tokens = push(tokens, ["KEYWORD", word, line])
+            } else {
+              set tokens = push(tokens, ["IDENT", word, line])
+            }
+          } else {
+            if ch == "\"" {
+              # string
+              let str = ""
+              set pos = pos + 1
+              until pos >= len(source) || source[pos] == "\"" {
+                set str = str + source[pos]
+                set pos = pos + 1
+              }
+              set pos = pos + 1
+              set tokens = push(tokens, ["STRING", str, line])
+            } else {
+              # operator or delimiter
+              set tokens = push(tokens, ["SYMBOL", ch, line])
+              set pos = pos + 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# print results
+print("tokenized {len(tokens)} tokens from {args[0]}")
+print("")
+
+for tok in tokens {
+  let kind = tok[0]
+  let value = tok[1]
+  let tokLine = tok[2]
+  unless kind == "NEWLINE" {
+    print("  {tokLine}: {kind} '{value}'")
+  }
+}
+
+test "tokenizes basic source" {
+  mock fs.read returns Ok("allow\n  fs.read\nlet x = 42")
+  expect await run() to be ok
+}
