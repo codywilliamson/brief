@@ -1,0 +1,51 @@
+allow
+  ai.loop
+  fs.read
+
+# agentic code reviewer - reads files on demand and provides feedback
+
+async fn handleTool(toolName, toolInput) {
+  if toolName == "readFile" {
+    # toolInput is ["path", "src/main.ts"] flat key-value pairs
+    let path = ""
+    for i in toolInput {
+      let path = i
+    }
+    let content =
+      await ask fs.read(path)
+      or return "error: file not found"
+    return content
+  }
+  if toolName == "listFiles" {
+    # in a real implementation this would list directory contents
+    return "src/main.ts, src/utils.ts, src/config.ts"
+  }
+  return "unknown tool"
+}
+
+let tools = [
+  ["readFile", "read a source file to review its code", ["path", "string", "file path"]],
+  ["listFiles", "list files in a directory", ["dir", "string", "directory path"]]
+]
+
+let config = [
+  "system", "you are a senior code reviewer. read the files you need, then provide specific, actionable feedback. focus on bugs, security issues, and maintainability. be direct.",
+  "model", "claude-sonnet-4-6"
+]
+
+let review =
+  await ask ai.loop("review the code in src/main.ts for bugs and security issues", tools, "handleTool", config)
+  or fail "code review failed"
+
+print(review)
+
+test "code review completes" {
+  mock ai.loop returns Ok("no issues found. code looks clean.")
+  expect await run() to be ok
+}
+
+test "handles missing files gracefully" {
+  mock fs.read returns failed("not found")
+  mock ai.loop returns Ok("could not read file, but based on available info...")
+  expect await run() to be ok
+}
