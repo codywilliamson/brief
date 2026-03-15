@@ -399,6 +399,14 @@ export class Interpreter {
     throw new BriefRuntimeError(`'${briefToString(callee)}' is not callable`, line);
   }
 
+  // public method for calling Brief functions from external code (e.g. ai.loop callbacks)
+  async callBriefFunction(name: string, args: BriefValue[]): Promise<BriefValue> {
+    if (!this.functions.has(name)) {
+      throw new BriefRuntimeError(`function '${name}' not found`);
+    }
+    return this.callFunction(name, args, 0, this.globalEnv);
+  }
+
   private checkPermission(tool: string, line: number): void {
     if (!this.permissions.has(tool)) {
       throw new BriefPermissionError(tool, line, this.sourceLines[line - 1]);

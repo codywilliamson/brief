@@ -6,7 +6,9 @@ import { Interpreter, type ToolHandler, type StreamToolHandler } from "./interpr
 import { BriefRuntimeError, BriefPermissionError } from "./result.js";
 import { BriefStream } from "./stream.js";
 import type { BriefValue, BriefResult } from "./stdlib/core.js";
+import { briefToString } from "./stdlib/core.js";
 import type { Program } from "./ast.js";
+import { aiLoop, type ToolExecutor } from "./stdlib/ai.js";
 
 export interface ToolRegistry {
   register(tool: string, handler: (...args: BriefValue[]) => Promise<BriefResult>): void;
@@ -57,11 +59,26 @@ export async function runBrief(options: RuntimeOptions): Promise<RuntimeResult> 
     throw resolved.errors[0];
   }
 
+  // late-bound ref to interpreter for ai.loop callback support
+  let interpRef: Interpreter | null = null;
+
   const toolHandler: ToolHandler = async (tool, args) => {
     // check mocks first
     if (mocks) {
       const mock = findMock(mocks, tool, args);
       if (mock) return mock.returnValue as BriefResult;
+    }
+
+    // ai.loop needs special handling - third arg is a function name for callbacks
+    if (tool === "ai.loop" && interpRef) {
+      const [prompt, tools, handlerName, config] = args;
+      if (typeof handlerName !== "string") {
+        return { kind: "failed", reason: "ai.loop third arg must be a function name (string)" };
+      }
+      const executor: ToolExecutor = async (toolName, toolInput) => {
+        return interpRef!.callBriefFunction(handlerName, [toolName, toolInput]);
+      };
+      return aiLoop(prompt, tools, executor, config);
     }
 
     // then registry
@@ -108,6 +125,7 @@ export async function runBrief(options: RuntimeOptions): Promise<RuntimeResult> 
     printFn: printFn ?? (testMode ? () => {} : undefined),
     sourceLines: source.split("\n"),
   });
+  interpRef = interp;
 
   const value = await interp.run(program);
   return { value, program, resolved };

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { aiComplete, aiStream, aiConverse, aiToolUse, setClient } from "../src/stdlib/ai.js";
+import { aiComplete, aiStream, aiConverse, aiToolUse, aiLoop, setClient } from "../src/stdlib/ai.js";
 import type { BriefResult } from "../src/stdlib/core.js";
 
 // mock the anthropic client
@@ -630,5 +630,166 @@ print(result)`,
     const blocks = prints[0] as any[];
     expect(blocks[0][0]).toBe("tool_use");
     expect(blocks[0][1]).toBe("getWeather");
+  });
+});
+
+describe("ai.loop", () => {
+  afterEach(() => setClient(null));
+
+  it("runs tool-use loop until model stops", async () => {
+    let callCount = 0;
+    const mock = createMockClient();
+    // override create to simulate: first call returns tool_use, second returns text
+    mock.messages.create = vi.fn(async (params: any) => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content: [
+            { type: "tool_use", name: "lookup", id: "call_1", input: { query: "test" } },
+          ],
+          role: "assistant",
+          stop_reason: "tool_use",
+        };
+      }
+      return {
+        content: [{ type: "text", text: "final answer based on lookup" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      };
+    });
+    setClient(mock);
+
+    const executor = vi.fn(async (toolName: string, toolInput: any) => {
+      return `result for ${toolName}`;
+    });
+
+    const tools = [["lookup", "search for info", ["query", "string", "search term"]]];
+    const result = await aiLoop("find something", tools, executor);
+
+    expect(result).toEqual({ kind: "ok", value: "final answer based on lookup" });
+    expect(executor).toHaveBeenCalledOnce();
+    expect(executor).toHaveBeenCalledWith("lookup", ["query", "test"]);
+    expect(mock.messages.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns immediately if no tool calls", async () => {
+    const mock = createMockClient({
+      createResponse: {
+        content: [{ type: "text", text: "no tools needed" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      },
+    });
+    setClient(mock);
+
+    const executor = vi.fn();
+    const result = await aiLoop("simple question", [["tool1", "desc"]], executor);
+
+    expect(result).toEqual({ kind: "ok", value: "no tools needed" });
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("handles multiple tool calls in one response", async () => {
+    let callCount = 0;
+    const mock = createMockClient();
+    mock.messages.create = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content: [
+            { type: "tool_use", name: "getA", id: "c1", input: {} },
+            { type: "tool_use", name: "getB", id: "c2", input: {} },
+          ],
+          role: "assistant",
+          stop_reason: "tool_use",
+        };
+      }
+      return {
+        content: [{ type: "text", text: "combined result" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      };
+    });
+    setClient(mock);
+
+    const calls: string[] = [];
+    const executor = vi.fn(async (name: string) => {
+      calls.push(name);
+      return `result-${name}`;
+    });
+
+    const tools = [["getA", "get A"], ["getB", "get B"]];
+    const result = await aiLoop("get both", tools, executor);
+
+    expect(result.kind).toBe("ok");
+    expect(calls).toEqual(["getA", "getB"]);
+  });
+
+  it("works end-to-end in Brief with callback function", async () => {
+    const { runBrief } = await import("../src/runtime.js");
+
+    let callCount = 0;
+    const mock = createMockClient();
+    mock.messages.create = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content: [
+            { type: "tool_use", name: "greet", id: "c1", input: { name: "world" } },
+          ],
+          role: "assistant",
+          stop_reason: "tool_use",
+        };
+      }
+      return {
+        content: [{ type: "text", text: "greeting complete" }],
+        role: "assistant",
+        stop_reason: "end_turn",
+      };
+    });
+    setClient(mock);
+
+    const prints: any[] = [];
+    await runBrief({
+      source: `allow
+  ai.loop
+
+async fn handleTool(toolName, toolInput) {
+  return "handled: " + toolName
+}
+
+let tools = [
+  ["greet", "greet someone", ["name", "string", "who to greet"]]
+]
+
+let result =
+  await ask ai.loop("say hi to world", tools, "handleTool")
+  or fail "loop failed"
+
+print(result)`,
+      printFn: (...a) => prints.push(...a),
+    });
+
+    expect(prints).toEqual(["greeting complete"]);
+    expect(mock.messages.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects non-string prompt", async () => {
+    const result = await aiLoop(42, [], async () => "");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects non-array tools", async () => {
+    const result = await aiLoop("test", "bad", async () => "");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("handles API error", async () => {
+    const mock = createMockClient({ createError: new Error("server down") });
+    setClient(mock);
+
+    const result = await aiLoop("test", [["t", "d"]], async () => "");
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("server down");
   });
 });

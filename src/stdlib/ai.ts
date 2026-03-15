@@ -265,3 +265,116 @@ export async function aiToolUse(
     return { kind: "failed", reason: e.message ?? String(e) };
   }
 }
+
+// agentic loop - runs tool-use loop until model stops calling tools
+// toolExecutor is a callback: (toolName, toolInput) => toolResult
+// returns the final text response after all tool calls are resolved
+export type ToolExecutor = (toolName: string, toolInput: BriefValue) => Promise<BriefValue>;
+
+export async function aiLoop(
+  prompt: BriefValue,
+  tools: BriefValue,
+  toolExecutor: ToolExecutor,
+  configArg?: BriefValue,
+): Promise<BriefResult> {
+  if (typeof prompt !== "string") {
+    return { kind: "failed", reason: "ai.loop prompt must be a string" };
+  }
+  if (!Array.isArray(tools)) {
+    return { kind: "failed", reason: "ai.loop tools must be an array" };
+  }
+
+  const config = parseConfig(configArg ?? null);
+  const client = getClient();
+
+  const apiTools: Anthropic.Tool[] = [];
+  for (const tool of tools) {
+    if (!Array.isArray(tool) || tool.length < 2) {
+      return { kind: "failed", reason: "each tool must be [name, description, ...params]" };
+    }
+    const name = briefToString(tool[0]);
+    const description = briefToString(tool[1]);
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    for (let i = 2; i < tool.length; i++) {
+      const param = tool[i];
+      if (Array.isArray(param) && param.length >= 2) {
+        const pName = briefToString(param[0]);
+        const pType = briefToString(param[1]);
+        const pDesc = param.length > 2 ? briefToString(param[2]) : "";
+        properties[pName] = { type: pType, description: pDesc };
+        required.push(pName);
+      }
+    }
+
+    apiTools.push({
+      name,
+      description,
+      input_schema: { type: "object" as const, properties, required },
+    });
+  }
+
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
+  const maxIterations = 10;
+
+  try {
+    for (let i = 0; i < maxIterations; i++) {
+      const params: Anthropic.MessageCreateParams = {
+        model: config.model ?? DEFAULT_MODEL,
+        max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
+        messages,
+        tools: apiTools,
+      };
+
+      if (config.temperature !== undefined) params.temperature = config.temperature;
+      if (config.system) params.system = config.system;
+
+      const response = await client.messages.create(params);
+
+      // check if model wants to use tools
+      const toolUseBlocks = response.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+      );
+
+      if (toolUseBlocks.length === 0 || response.stop_reason !== "tool_use") {
+        // no tool calls - extract final text
+        const text = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map(b => b.text)
+          .join("");
+        return { kind: "ok", value: text };
+      }
+
+      // add assistant message with tool use
+      messages.push({ role: "assistant", content: response.content });
+
+      // execute tool calls and build tool results
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolBlock of toolUseBlocks) {
+        // convert input to Brief-friendly format
+        const inputPairs: BriefValue[] = [];
+        if (toolBlock.input && typeof toolBlock.input === "object") {
+          for (const [k, v] of Object.entries(toolBlock.input as Record<string, any>)) {
+            inputPairs.push(k);
+            inputPairs.push(typeof v === "string" ? v : JSON.stringify(v));
+          }
+        }
+
+        const result = await toolExecutor(toolBlock.name, inputPairs);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolBlock.id,
+          content: briefToString(result),
+        });
+      }
+
+      // add tool results to messages
+      messages.push({ role: "user", content: toolResults });
+    }
+
+    return { kind: "failed", reason: "ai.loop exceeded max iterations (10)" };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
