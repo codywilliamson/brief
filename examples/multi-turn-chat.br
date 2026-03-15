@@ -1,0 +1,44 @@
+allow
+  ai.converse
+
+# multi-turn conversation - build up context across turns
+
+let config = ["system", "you are a helpful coding tutor. give short, clear answers with code examples."]
+
+# turn 1: ask a question
+let messages = ["user", "what is a closure in javascript?"]
+let response1 =
+  await ask ai.converse(messages, config)
+  or fail "turn 1 failed"
+print("tutor: {response1}")
+print("")
+
+# turn 2: follow up
+let messages2 = [
+  "user", "what is a closure in javascript?",
+  "assistant", response1,
+  "user", "can you show me a practical example of using closures for data privacy?"
+]
+let response2 =
+  await ask ai.converse(messages2, config)
+  or fail "turn 2 failed"
+print("tutor: {response2}")
+print("")
+
+# turn 3: go deeper
+let messages3 = [
+  "user", "what is a closure in javascript?",
+  "assistant", response1,
+  "user", "can you show me a practical example of using closures for data privacy?",
+  "assistant", response2,
+  "user", "how does this compare to using classes with private fields?"
+]
+let response3 =
+  await ask ai.converse(messages3, config)
+  or fail "turn 3 failed"
+print("tutor: {response3}")
+
+test "multi-turn conversation works" {
+  mock ai.converse returns Ok("a closure captures variables from its outer scope")
+  expect await run() to be ok
+}
