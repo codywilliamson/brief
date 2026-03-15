@@ -2,7 +2,7 @@
 
 ## Overview
 
-Brief is an agentic scripting language designed to be written by AI agents and audited by humans. Scripts are single-file, execute top to bottom, and are optimized for readability over writability. The interpreter is implemented in TypeScript and embedded in Crafter.
+Brief is an agentic scripting language designed to be written by AI agents and audited by humans. Scripts are single-file, execute top to bottom, and are optimized for readability over writability. The interpreter is implemented in TypeScript with direct Anthropic SDK integration for AI capabilities.
 
 ---
 
@@ -91,6 +91,9 @@ http.fetch
 http.post
 ai.complete
 ai.stream
+ai.converse
+ai.toolUse
+ai.loop
 ```
 
 ---
@@ -144,13 +147,105 @@ let result =
 
 ### Available tools (core)
 ```
-ai.complete(prompt)           -> Result<string>
-ai.stream(prompt)             -> Stream<string>
-fs.read(path)                 -> Result<string>
-fs.write(path, content)       -> Result<void>
-http.fetch(url)               -> Result<string>
-http.post(url, body)          -> Result<string>
+fs.read(path)                          -> Result<string>
+fs.write(path, content)                -> Result<void>
+http.fetch(url)                        -> Result<string>
+http.post(url, body)                   -> Result<string>
+ai.complete(prompt, config?)           -> Result<string>
+ai.stream(prompt, config?)             -> Stream<string>
+ai.converse(messages, config?)         -> Result<string>
+ai.toolUse(prompt, tools, config?)     -> Result<array>
+ai.loop(prompt, tools, handler, config?) -> Result<string>
 ```
+
+### AI config
+
+AI tools accept an optional config array of key-value pairs:
+
+```
+let config = ["model", "claude-opus-4-20250514", "temperature", 0.7, "system", "be concise", "maxTokens", 1024]
+
+let result =
+  await ask ai.complete("prompt", config)
+  or fail "failed"
+```
+
+Available config keys:
+```
+model       string    model id (default: claude-sonnet-4-20250514)
+maxTokens   number    max output tokens (default: 4096)
+temperature number    sampling temperature
+system      string    system prompt
+```
+
+### Multi-turn conversations (ai.converse)
+
+Messages are passed as a flat array of alternating role-content pairs:
+
+```
+let messages = [
+  "user", "what is rust?",
+  "assistant", "Rust is a systems programming language.",
+  "user", "how does it handle memory?"
+]
+
+let response =
+  await ask ai.converse(messages)
+  or fail "conversation failed"
+```
+
+Valid roles: `"user"`, `"assistant"`. First message must be from `"user"`.
+
+### Structured tool use (ai.toolUse)
+
+Tools are defined as arrays. Each tool is `[name, description, ...params]` where each param is `[name, type, description]`:
+
+```
+let tools = [
+  ["getWeather", "get current weather", ["city", "string", "city name"]],
+  ["searchFlights", "search flights", ["from", "string", "origin"], ["to", "string", "destination"]]
+]
+
+let result =
+  await ask ai.toolUse("weather in SF?", tools)
+  or fail "tool use failed"
+```
+
+Returns an array of content blocks. Each block is either:
+- `["text", "response text"]` for text responses
+- `["tool_use", "toolName", "callId", ["param1", "value1", ...]]` for tool calls
+
+### Agentic tool-use loops (ai.loop)
+
+Runs a full agentic loop: sends prompt with tools, model calls tools, Brief executes them via a handler function, feeds results back, repeats until the model stops calling tools (max 10 iterations).
+
+The third argument is the name of a Brief function that handles tool calls:
+
+```
+async fn handleTool(toolName, toolInput) {
+  if toolName == "readFile" {
+    let content =
+      await ask fs.read(toolInput)
+      or return "file not found"
+    return content
+  }
+  return "unknown tool"
+}
+
+let tools = [
+  ["readFile", "read a file", ["path", "string", "file path"]]
+]
+
+let answer =
+  await ask ai.loop("summarize config.json", tools, "handleTool")
+  or fail "agent loop failed"
+```
+
+The handler function receives:
+- `toolName` (string) — the name of the tool the model wants to call
+- `toolInput` (array) — flat array of key-value pairs from the model's input, e.g. `["path", "config.json"]`
+
+The handler's return value is sent back to the model as the tool result.
 
 ---
 
@@ -398,14 +493,15 @@ Brief permission error: 'fs.write' not declared in allow block
 
 ---
 
-## Complete example
+## Complete examples
+
+### Basic: file-based report generation
 
 ```
 allow
   fs.read
   fs.write
   ai.complete
-  ai.stream
 
 # read the research topic from disk
 let topic =
@@ -415,29 +511,21 @@ let topic =
 # bail early if topic is empty
 return failed("topic is empty") if trim(topic) == ""
 
-# generate a full report via streaming
-let sections = []
-for await chunk from ask ai.stream(
-  "write a detailed report on: {topic}"
-) {
-  sections.push(chunk)
-  print(chunk)
-}
-
-let report = join(sections, "")
+# generate a report
+let report =
+  await ask ai.complete("write a detailed report on: {topic}")
+  or fail "ai failed"
 
 # save the report to disk
-with ctx {
-  await ask fs.write("report.txt", report)
-    or fail "could not save report"
-}
+await ask fs.write("report.txt", report)
+  or fail "could not save report"
 
 print("done. report saved to report.txt")
 
 test "generates and saves report" {
   mock fs.read("topic.txt") returns Ok("quantum computing")
-  mock ai.stream returns Ok("report content")
-  mock fs.write("report.txt", "report content") returns Ok(null)
+  mock ai.complete returns Ok("report content")
+  mock fs.write returns Ok(null)
   expect await run() to be ok
 }
 
@@ -449,5 +537,60 @@ test "fails on empty topic" {
 test "fails on missing topic file" {
   mock fs.read("topic.txt") returns failed("not found")
   expect await run() to be failed("could not read topic file")
+}
+```
+
+### Agentic: tool-use loop with file access
+
+```
+allow
+  ai.loop
+  fs.read
+
+# define how to handle tool calls from the model
+async fn handleTool(toolName, toolInput) {
+  if toolName == "readFile" {
+    let content =
+      await ask fs.read(toolInput)
+      or return "file not found"
+    return content
+  }
+  return "unknown tool"
+}
+
+# define tools the model can use
+let tools = [
+  ["readFile", "read a file from disk", ["path", "string", "file path"]]
+]
+
+# run the agentic loop - model decides what to read, Brief executes
+let config = ["system", "you are a code reviewer. read files and provide feedback."]
+let review =
+  await ask ai.loop("review the code in main.ts", tools, "handleTool", config)
+  or fail "agent loop failed"
+
+print(review)
+
+test "agent loop completes" {
+  mock ai.loop returns Ok("code looks good")
+  expect await run() to be ok
+}
+```
+
+### Streaming: real-time output
+
+```
+allow
+  ai.stream
+
+for await chunk from ask ai.stream("write a haiku about programming") {
+  print(chunk)
+}
+
+print("done")
+
+test "streaming works" {
+  mock ai.stream returns Ok("code flows like water")
+  expect await run() to be ok
 }
 ```

@@ -2,7 +2,7 @@
 
 An agentic scripting language designed to be written by AI agents and audited by humans.
 
-Brief scripts are single-file, execute top to bottom, and are optimized for readability over writability. The interpreter is implemented in TypeScript with direct Anthropic SDK integration.
+Brief scripts are single-file `.br` programs that execute top to bottom with a permission-gated tool system. The interpreter is TypeScript with direct Anthropic SDK integration.
 
 ## Quick start
 
@@ -39,75 +39,9 @@ test "fails on empty topic" {
 }
 ```
 
-## Agentic tool use
+## Agentic loops
 
-Brief integrates directly with the Anthropic SDK for structured tool calling and agentic loops.
-
-### ai.complete - single completion
-
-```
-allow
-  ai.complete
-
-let response =
-  await ask ai.complete("explain quantum computing")
-  or fail "completion failed"
-
-# with config
-let config = ["model", "claude-opus-4-20250514", "temperature", 0.7, "system", "be concise"]
-let tuned =
-  await ask ai.complete("explain quantum computing", config)
-  or fail "completion failed"
-```
-
-### ai.stream - streaming responses
-
-```
-allow
-  ai.stream
-
-for await chunk from ask ai.stream("write a story") {
-  print(chunk)
-}
-```
-
-### ai.converse - multi-turn conversations
-
-```
-allow
-  ai.converse
-
-let messages = [
-  "user", "what is rust?",
-  "assistant", "Rust is a systems programming language.",
-  "user", "how does it handle memory?"
-]
-
-let response =
-  await ask ai.converse(messages)
-  or fail "conversation failed"
-```
-
-### ai.toolUse - structured tool calling
-
-```
-allow
-  ai.toolUse
-
-let tools = [
-  ["getWeather", "get current weather", ["city", "string", "city name"]]
-]
-
-let result =
-  await ask ai.toolUse("what's the weather in SF?", tools)
-  or fail "tool use failed"
-
-# result is array of content blocks: [["tool_use", "getWeather", "call_id", ["city", "SF"]]]
-```
-
-### ai.loop - agentic tool-use loops
-
-The killer feature. Define tools and a handler function, and Brief runs the full agentic loop: model calls tools, Brief executes them, feeds results back, repeat until the model is done.
+The killer feature. Define tools and a handler function, Brief runs the full agentic loop: model calls tools, Brief executes them via your handler, feeds results back, repeats until the model is done.
 
 ```
 allow
@@ -116,9 +50,8 @@ allow
 
 async fn handleTool(toolName, toolInput) {
   if toolName == "readFile" {
-    let path = toolInput
     let content =
-      await ask fs.read(path)
+      await ask fs.read(toolInput)
       or return "file not found"
     return content
   }
@@ -130,63 +63,88 @@ let tools = [
 ]
 
 let result =
-  await ask ai.loop("summarize the contents of config.json", tools, "handleTool")
+  await ask ai.loop("summarize config.json", tools, "handleTool")
   or fail "agent loop failed"
 
 print(result)
 ```
 
+## AI tools
+
+All AI tools use the Anthropic SDK directly. Optional config via key-value arrays:
+
+```
+let config = ["model", "claude-opus-4-20250514", "temperature", 0.7, "system", "be concise"]
+```
+
+| Tool | Signature | Returns |
+|------|-----------|---------|
+| `ai.complete` | `(prompt, config?)` | `Result<string>` |
+| `ai.stream` | `(prompt, config?)` | `Stream<string>` |
+| `ai.converse` | `(messages, config?)` | `Result<string>` |
+| `ai.toolUse` | `(prompt, tools, config?)` | `Result<array>` |
+| `ai.loop` | `(prompt, tools, handler, config?)` | `Result<string>` |
+
+**ai.converse** takes alternating role-content pairs: `["user", "hi", "assistant", "hello", "user", "how are you?"]`
+
+**ai.toolUse** returns content blocks: `[["text", "..."], ["tool_use", "name", "id", ["key", "val"]]]`
+
+**ai.loop** takes a Brief function name as handler — the function receives `(toolName, toolInput)` and returns the tool result.
+
 ## Language features
 
-- **Permission system** - scripts declare required permissions upfront via `allow` blocks
-- **Result types** - all tool calls return `Result<T>` with `or fail` / `or return` unwrapping
-- **Async first** - all functions are async, with `await`, `await all`, and streaming support
-- **Pattern matching** - `when` expressions for matching on `ok`/`failed` results
-- **Built-in testing** - `test` blocks with `mock` and `expect` baked into the language
-- **Context scoping** - `with ctx` blocks for implicit context passing to tool calls
-- **SDK integration** - direct Anthropic SDK for completions, streaming, multi-turn, tool use, and agentic loops
-
-## Architecture
-
-```
-src/
-  lexer.ts         tokenizes .br source
-  parser.ts        produces AST from tokens
-  ast.ts           AST node type definitions
-  resolver.ts      resolves names and scopes
-  interpreter.ts   tree-walk evaluator
-  runtime.ts       async scheduler, tool registry, permission gate
-  result.ts        Ok/failed Result type
-  stream.ts        Stream<T> type for async iteration
-  stdlib/
-    core.ts        print, len, trim, split, join, slice, parseInt, parseFloat, toString
-    ai.ts          ai.complete, ai.stream, ai.converse, ai.toolUse, ai.loop
-    fs.ts          fs.read, fs.write
-    http.ts        http.fetch, http.post
-  test-runner.ts   discovers and runs test blocks
-  cli.ts           entrypoint: brief run, brief test, brief repl
-```
-
-## Testing
-
-```bash
-pnpm test          # run all vitest tests (170 tests)
-pnpm test:watch    # watch mode
-```
+- **Permission system** — `allow` blocks declare what tools a script can use
+- **Result types** — `or fail` / `or return` for unwrapping, `when` for pattern matching
+- **Async first** — `await`, `await all` for parallel, `for await` for streaming
+- **Built-in testing** — `test` blocks with `mock` and `expect`
+- **Control flow** — `if`/`else`, `unless`, `until`, `for`..`in`, postfix `if`
+- **Interpolation** — `"hello {name}"` in strings
+- **Gradual typing** — optional type annotations (parsed, not enforced in v1)
 
 ## Available permissions
 
 ```
-fs.read       read files from disk
-fs.write      write files to disk
-http.fetch    HTTP GET requests
-http.post     HTTP POST requests
+fs.read       read files
+fs.write      write files
+http.fetch    HTTP GET
+http.post     HTTP POST
 ai.complete   single LLM completion
 ai.stream     streaming LLM completion
 ai.converse   multi-turn conversation
 ai.toolUse    structured tool calling
 ai.loop       agentic tool-use loop
 ```
+
+## Architecture
+
+```
+src/
+  lexer.ts         tokenizer
+  parser.ts        recursive descent parser
+  ast.ts           AST node types
+  resolver.ts      name resolution + permission validation
+  interpreter.ts   tree-walk evaluator
+  runtime.ts       tool registry, mock system, pipeline
+  result.ts        Ok/failed Result type
+  stream.ts        BriefStream<T> for async iteration
+  stdlib/
+    core.ts        print, len, trim, split, join, slice, parseInt, parseFloat, toString
+    ai.ts          ai.complete, ai.stream, ai.converse, ai.toolUse, ai.loop (Anthropic SDK)
+    fs.ts          fs.read, fs.write
+    http.ts        http.fetch, http.post
+  test-runner.ts   test block execution
+  cli.ts           brief run | test | repl
+```
+
+## Testing
+
+```bash
+pnpm test        # 170 tests across 7 suites
+```
+
+## Spec
+
+See [SPEC.md](SPEC.md) for the full language specification.
 
 ## License
 
