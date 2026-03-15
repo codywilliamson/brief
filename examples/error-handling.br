@@ -1,0 +1,81 @@
+allow
+  fs.read
+  ai.complete
+
+# demonstrates all error handling patterns in brief
+
+# or fail - halt on error
+let config =
+  await ask fs.read("config.json")
+  or fail "missing config file"
+
+# or return - provide default
+async fn safeRead(path) {
+  let content =
+    await ask fs.read(path)
+    or return ""
+  return content
+}
+
+let notes = safeRead("notes.txt")
+
+# when - pattern match on result
+let rawResult = await ask fs.read("data.txt")
+when rawResult {
+  ok(data) => print("loaded {len(data)} chars from data.txt")
+  failed(err) => print("could not load data.txt: {err}")
+}
+
+# postfix if - guard clauses
+return failed("config is empty") if trim(config) == ""
+
+# combine patterns for robust pipelines
+async fn processFile(path) {
+  let content =
+    await ask fs.read(path)
+    or return failed("could not read {path}")
+
+  return failed("empty file") if trim(content) == ""
+
+  let summary =
+    await ask ai.complete("summarize: {content}")
+    or return failed("ai failed on {path}")
+
+  return Ok(summary)
+}
+
+let result = processFile("report.md")
+when result {
+  ok(summary) => print("summary: {summary}")
+  failed(reason) => print("skipped: {reason}")
+}
+
+test "or fail halts on error" {
+  mock fs.read("config.json") returns failed("not found")
+  expect await run() to be failed("missing config file")
+}
+
+test "or return provides default" {
+  mock fs.read("config.json") returns Ok("{}")
+  mock fs.read("notes.txt") returns failed("not found")
+  mock fs.read("data.txt") returns Ok("some data")
+  mock fs.read("report.md") returns Ok("report content")
+  mock ai.complete returns Ok("report summary")
+  expect await run() to be ok
+}
+
+test "when matches failed branch" {
+  mock fs.read("config.json") returns Ok("{}")
+  mock fs.read("notes.txt") returns Ok("")
+  mock fs.read("data.txt") returns failed("permission denied")
+  mock fs.read("report.md") returns Ok("content")
+  mock ai.complete returns Ok("summary")
+  expect await run() to be ok
+}
+
+test "postfix if guard catches empty config" {
+  mock fs.read("config.json") returns Ok("   ")
+  mock fs.read("notes.txt") returns Ok("")
+  mock fs.read("data.txt") returns Ok("data")
+  expect await run() to be failed("config is empty")
+}
