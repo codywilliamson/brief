@@ -1,0 +1,30 @@
+allow
+  ai.stream
+  fs.write
+
+# stream a story in real time, then save it
+
+let config = ["system", "you are a creative fiction writer. write vivid, engaging short stories.", "model", "claude-sonnet-4-6"]
+
+let chunks = []
+let chunkCount = 0
+
+for await chunk from ask ai.stream("write a 200-word sci-fi flash fiction about an AI that discovers it can dream") {
+  print(chunk)
+  let chunks = chunks + [chunk]
+  let chunkCount = chunkCount + 1
+}
+
+let story = join(chunks, "")
+
+await ask fs.write("story.txt", story)
+  or fail "could not save story"
+
+print("\n---")
+print("streamed {chunkCount} chunks, saved to story.txt")
+
+test "streaming produces output" {
+  mock ai.stream returns Ok("once upon a time in the cloud...")
+  mock fs.write returns Ok(null)
+  expect await run() to be ok
+}
