@@ -1,0 +1,44 @@
+allow
+  ai.complete
+  fs.write
+
+# research multiple topics in parallel using await all
+
+let topics = ["quantum computing", "gene editing", "nuclear fusion"]
+
+let config = ["system", "write a 2-sentence summary of the current state of this technology. be factual and concise."]
+
+# fire off all research queries in parallel
+let results = await all {
+  ask ai.complete("current state of: quantum computing", config)
+  ask ai.complete("current state of: gene editing", config)
+  ask ai.complete("current state of: nuclear fusion", config)
+}
+
+# build the report
+let report = "# technology briefing\n\n"
+let i = 0
+for topic in topics {
+  let result = results
+  when result {
+    ok(summary) => {
+      let report = report + "## " + topic + "\n" + summary + "\n\n"
+    }
+    failed(err) => {
+      let report = report + "## " + topic + "\n(failed: " + err + ")\n\n"
+    }
+  }
+  let i = i + 1
+}
+
+await ask fs.write("briefing.txt", report)
+  or fail "could not save briefing"
+
+print(report)
+print("briefing saved to briefing.txt")
+
+test "parallel research completes" {
+  mock ai.complete returns Ok("this technology is advancing rapidly.")
+  mock fs.write returns Ok(null)
+  expect await run() to be ok
+}
