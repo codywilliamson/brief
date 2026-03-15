@@ -1,0 +1,48 @@
+allow
+  http.fetch
+  ai.complete
+  fs.write
+
+# fetch a webpage and summarize its content
+
+let url = "https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/README.md"
+
+let page =
+  await ask http.fetch(url)
+  or fail "could not fetch url"
+
+return failed("empty response") if trim(page) == ""
+
+print("fetched {len(page)} characters")
+
+let config = [
+  "system", "extract and summarize the key points from this web content. output as a clean markdown list.",
+  "model", "claude-sonnet-4-6"
+]
+
+let summary =
+  await ask ai.complete("summarize the following web page content:\n\n{page}", config)
+  or fail "summarization failed"
+
+await ask fs.write("web-summary.txt", summary)
+  or fail "could not save summary"
+
+print(summary)
+print("\nsaved to web-summary.txt")
+
+test "fetches and summarizes url" {
+  mock http.fetch returns Ok("# Anthropic Cookbook\nA collection of guides and examples.")
+  mock ai.complete returns Ok("- Anthropic Cookbook is a collection of guides\n- Contains examples for using Claude")
+  mock fs.write returns Ok(null)
+  expect await run() to be ok
+}
+
+test "handles fetch failure" {
+  mock http.fetch returns failed("network error")
+  expect await run() to be failed("could not fetch url")
+}
+
+test "handles empty response" {
+  mock http.fetch returns Ok("   ")
+  expect await run() to be failed("empty response")
+}
