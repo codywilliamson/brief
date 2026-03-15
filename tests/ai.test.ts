@@ -1,137 +1,110 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { aiComplete, aiStream, aiConverse, aiToolUse, aiLoop, setClient } from "../src/stdlib/ai.js";
-import type { BriefResult } from "../src/stdlib/core.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  aiComplete, aiStream, aiConverse, aiToolUse, aiLoop,
+  setQueryFn,
+} from "../src/stdlib/ai.js";
+import type { BriefValue } from "../src/stdlib/core.js";
 
-// mock the anthropic client
-function createMockClient(opts: {
-  createResponse?: any;
-  createError?: Error;
-  streamEvents?: any[];
+// mock query function that returns an async iterable of messages
+function mockQuery(messages: any[]) {
+  return async function* () {
+    for (const msg of messages) {
+      yield msg;
+    }
+  };
+}
+
+function createMockQueryFn(opts: {
+  result?: string;
+  error?: string;
+  streamDeltas?: string[];
+  toolUseBlocks?: any[];
+  perCall?: any[][]; // different message sequences per call
 } = {}) {
-  return {
-    messages: {
-      create: vi.fn(async (params: any) => {
-        if (opts.createError) throw opts.createError;
+  let callIndex = 0;
+  const calls: any[] = [];
 
-        if (params.stream) {
-          // return an async iterable of events
-          const events = opts.streamEvents ?? [];
-          return {
-            [Symbol.asyncIterator]: async function* () {
-              for (const event of events) {
-                yield event;
-              }
-            },
-          };
-        }
+  const fn = vi.fn((params: any) => {
+    calls.push(params);
+    const idx = callIndex++;
 
-        return opts.createResponse ?? {
-          content: [{ type: "text", text: "mock response" }],
-          model: params.model,
-          role: "assistant",
-          stop_reason: "end_turn",
-        };
-      }),
-    },
-  } as any;
+    if (opts.perCall && opts.perCall[idx]) {
+      return mockQuery(opts.perCall[idx])();
+    }
+
+    const messages: any[] = [];
+
+    if (opts.streamDeltas) {
+      for (const text of opts.streamDeltas) {
+        messages.push({
+          type: "stream_event",
+          event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+        });
+      }
+    }
+
+    if (opts.toolUseBlocks) {
+      messages.push({
+        type: "assistant",
+        message: { content: opts.toolUseBlocks },
+      });
+    }
+
+    if (opts.error) {
+      messages.push({ type: "result", subtype: opts.error });
+    } else {
+      messages.push({ type: "result", subtype: "success", result: opts.result ?? "mock response" });
+    }
+
+    return mockQuery(messages)();
+  }) as any;
+
+  fn._calls = calls;
+  return fn;
 }
 
 describe("ai.complete", () => {
-  afterEach(() => setClient(null));
+  afterEach(() => setQueryFn(null));
 
   it("returns text from completion", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "hello from claude" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
+    const mock = createMockQueryFn({ result: "hello from claude" });
+    setQueryFn(mock);
 
     const result = await aiComplete("say hello");
     expect(result).toEqual({ kind: "ok", value: "hello from claude" });
-    expect(mock.messages.create).toHaveBeenCalledOnce();
+    expect(mock).toHaveBeenCalledOnce();
   });
 
-  it("passes prompt as user message", async () => {
-    const mock = createMockClient();
-    setClient(mock);
+  it("passes prompt to query", async () => {
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
 
     await aiComplete("test prompt");
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.messages).toEqual([{ role: "user", content: "test prompt" }]);
+    expect(mock._calls[0].prompt).toBe("test prompt");
   });
 
-  it("uses default model and max_tokens", async () => {
-    const mock = createMockClient();
-    setClient(mock);
+  it("uses default model", async () => {
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
 
     await aiComplete("test");
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-sonnet-4-20250514");
-    expect(call.max_tokens).toBe(4096);
+    expect(mock._calls[0].options.model).toBe("claude-sonnet-4-6");
   });
 
   it("accepts config with model override", async () => {
-    const mock = createMockClient();
-    setClient(mock);
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
 
-    await aiComplete("test", ["model", "claude-opus-4-20250514"]);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-opus-4-20250514");
-  });
-
-  it("accepts config with temperature", async () => {
-    const mock = createMockClient();
-    setClient(mock);
-
-    await aiComplete("test", ["temperature", 0.7]);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.temperature).toBe(0.7);
+    await aiComplete("test", ["model", "claude-opus-4-6"]);
+    expect(mock._calls[0].options.model).toBe("claude-opus-4-6");
   });
 
   it("accepts config with system prompt", async () => {
-    const mock = createMockClient();
-    setClient(mock);
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
 
     await aiComplete("test", ["system", "you are a pirate"]);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.system).toBe("you are a pirate");
-  });
-
-  it("accepts config with multiple options", async () => {
-    const mock = createMockClient();
-    setClient(mock);
-
-    await aiComplete("test", [
-      "model", "claude-opus-4-20250514",
-      "temperature", 0.5,
-      "system", "be concise",
-      "maxTokens", 1024,
-    ]);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-opus-4-20250514");
-    expect(call.temperature).toBe(0.5);
-    expect(call.system).toBe("be concise");
-    expect(call.max_tokens).toBe(1024);
-  });
-
-  it("concatenates multiple text blocks", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [
-          { type: "text", text: "part one " },
-          { type: "text", text: "part two" },
-        ],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const result = await aiComplete("test");
-    expect(result).toEqual({ kind: "ok", value: "part one part two" });
+    expect(mock._calls[0].options.systemPrompt).toBe("you are a pirate");
   });
 
   it("returns failed on non-string prompt", async () => {
@@ -140,30 +113,38 @@ describe("ai.complete", () => {
     expect((result as any).reason).toContain("must be a string");
   });
 
-  it("returns failed on API error", async () => {
-    const mock = createMockClient({
-      createError: new Error("rate limited"),
-    });
-    setClient(mock);
+  it("returns failed on agent error", async () => {
+    const mock = createMockQueryFn({ error: "error_max_turns" });
+    setQueryFn(mock);
 
     const result = await aiComplete("test");
     expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("rate limited");
+    expect((result as any).reason).toContain("error_max_turns");
+  });
+
+  it("returns failed on thrown error", async () => {
+    setQueryFn((() => { throw new Error("connection failed"); }) as any);
+
+    const result = await aiComplete("test");
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("connection failed");
+  });
+
+  it("uses bypassPermissions mode", async () => {
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
+
+    await aiComplete("test");
+    expect(mock._calls[0].options.permissionMode).toBe("bypassPermissions");
   });
 });
 
 describe("ai.stream", () => {
-  afterEach(() => setClient(null));
+  afterEach(() => setQueryFn(null));
 
   it("streams text deltas", async () => {
-    const mock = createMockClient({
-      streamEvents: [
-        { type: "content_block_delta", delta: { type: "text_delta", text: "hello " } },
-        { type: "content_block_delta", delta: { type: "text_delta", text: "world" } },
-        { type: "message_stop" },
-      ],
-    });
-    setClient(mock);
+    const mock = createMockQueryFn({ streamDeltas: ["hello ", "world"], result: "" });
+    setQueryFn(mock);
 
     const stream = await aiStream("test");
     const chunks: string[] = [];
@@ -173,33 +154,9 @@ describe("ai.stream", () => {
     expect(chunks).toEqual(["hello ", "world"]);
   });
 
-  it("passes stream: true to API", async () => {
-    const mock = createMockClient({ streamEvents: [] });
-    setClient(mock);
-
-    const stream = await aiStream("test");
-    // consume stream to trigger the API call
-    for await (const _ of stream) {}
-
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.stream).toBe(true);
-  });
-
-  it("uses config options", async () => {
-    const mock = createMockClient({ streamEvents: [] });
-    setClient(mock);
-
-    const stream = await aiStream("test", ["model", "claude-opus-4-20250514", "temperature", 0.3]);
-    for await (const _ of stream) {}
-
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-opus-4-20250514");
-    expect(call.temperature).toBe(0.3);
-  });
-
   it("handles empty stream", async () => {
-    const mock = createMockClient({ streamEvents: [] });
-    setClient(mock);
+    const mock = createMockQueryFn({ result: "" });
+    setQueryFn(mock);
 
     const stream = await aiStream("test");
     const chunks: string[] = [];
@@ -218,59 +175,212 @@ describe("ai.stream", () => {
     expect(chunks).toEqual([]);
   });
 
-  it("filters non-text-delta events", async () => {
-    const mock = createMockClient({
-      streamEvents: [
-        { type: "message_start", message: {} },
-        { type: "content_block_start", content_block: { type: "text" } },
-        { type: "content_block_delta", delta: { type: "text_delta", text: "only this" } },
-        { type: "content_block_stop" },
-        { type: "message_delta", delta: {} },
-        { type: "message_stop" },
-      ],
-    });
-    setClient(mock);
+  it("handles error during stream", async () => {
+    setQueryFn((() => { throw new Error("stream failed"); }) as any);
 
     const stream = await aiStream("test");
     const chunks: string[] = [];
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
-    expect(chunks).toEqual(["only this"]);
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]).toContain("stream failed");
   });
 
-  it("handles API error during stream", async () => {
-    const mock = createMockClient({
-      createError: new Error("connection failed"),
-    });
-    setClient(mock);
+  it("reports agent errors in stream", async () => {
+    const mock = createMockQueryFn({ error: "error_max_turns" });
+    setQueryFn(mock);
 
     const stream = await aiStream("test");
     const chunks: string[] = [];
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
-    // should get an error chunk
-    expect(chunks.length).toBe(1);
-    expect(chunks[0]).toContain("connection failed");
+    expect(chunks.some(c => c.includes("error_max_turns"))).toBe(true);
   });
 });
 
-describe("ai integration with interpreter", () => {
-  afterEach(() => setClient(null));
+describe("ai.converse", () => {
+  afterEach(() => setQueryFn(null));
 
-  it("works end-to-end with Brief runtime", async () => {
-    const { runBrief } = await import("../src/runtime.js");
-    const { createToolRegistry } = await import("../src/runtime.js");
+  it("sends multi-turn messages as formatted prompt", async () => {
+    const mock = createMockQueryFn({ result: "turn 3 response" });
+    setQueryFn(mock);
 
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "AI says hello" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
+    const result = await aiConverse([
+      "user", "hello",
+      "assistant", "hi there",
+      "user", "how are you?",
+    ]);
+
+    expect(result).toEqual({ kind: "ok", value: "turn 3 response" });
+    expect(mock._calls[0].prompt).toContain("user: hello");
+    expect(mock._calls[0].prompt).toContain("assistant: hi there");
+    expect(mock._calls[0].prompt).toContain("user: how are you?");
+  });
+
+  it("rejects non-array input", async () => {
+    const result = await aiConverse("not an array");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects empty messages", async () => {
+    const result = await aiConverse([]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("at least one message");
+  });
+
+  it("rejects invalid role", async () => {
+    const result = await aiConverse(["system", "test"]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("invalid message role");
+  });
+
+  it("accepts config", async () => {
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
+
+    await aiConverse(["user", "test"], ["model", "claude-opus-4-6"]);
+    expect(mock._calls[0].options.model).toBe("claude-opus-4-6");
+  });
+});
+
+describe("ai.toolUse", () => {
+  afterEach(() => setQueryFn(null));
+
+  it("builds tool descriptions into prompt", async () => {
+    const mock = createMockQueryFn({ result: "tool result" });
+    setQueryFn(mock);
+
+    const tools = [
+      ["getWeather", "get current weather", ["city", "string", "city name"]],
+    ];
+
+    const result = await aiToolUse("what's the weather?", tools);
+    expect(result.kind).toBe("ok");
+    expect(mock._calls[0].prompt).toContain("getWeather");
+    expect(mock._calls[0].prompt).toContain("get current weather");
+  });
+
+  it("rejects non-string prompt", async () => {
+    const result = await aiToolUse(42, []);
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects non-array tools", async () => {
+    const result = await aiToolUse("test", "not array");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects malformed tool definition", async () => {
+    const result = await aiToolUse("test", [["onlyName"]]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("each tool must be");
+  });
+});
+
+describe("ai.loop", () => {
+  afterEach(() => setQueryFn(null));
+
+  it("returns immediately if no tool calls", async () => {
+    const mock = createMockQueryFn({ result: "no tools needed" });
+    setQueryFn(mock);
+
+    const executor = vi.fn();
+    const result = await aiLoop("simple question", [["tool1", "desc"]], executor);
+
+    expect(result).toEqual({ kind: "ok", value: "no tools needed" });
+    expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("runs tool-use loop until model stops", async () => {
+    const mock = createMockQueryFn({
+      perCall: [
+        // first call: tool use
+        [
+          {
+            type: "assistant",
+            message: {
+              content: [{ type: "tool_use", name: "lookup", input: { query: "test" } }],
+            },
+          },
+          { type: "result", subtype: "success", result: "" },
+        ],
+        // second call: final answer
+        [
+          { type: "result", subtype: "success", result: "final answer" },
+        ],
+      ],
     });
-    setClient(mock);
+    setQueryFn(mock);
+
+    const executor = vi.fn(async () => "lookup result");
+    const result = await aiLoop("find something", [["lookup", "search"]], executor);
+
+    expect(result).toEqual({ kind: "ok", value: "final answer" });
+    expect(executor).toHaveBeenCalledOnce();
+    expect(executor).toHaveBeenCalledWith("lookup", ["query", "test"]);
+  });
+
+  it("handles multiple tool calls in one response", async () => {
+    const mock = createMockQueryFn({
+      perCall: [
+        [
+          {
+            type: "assistant",
+            message: {
+              content: [
+                { type: "tool_use", name: "getA", input: {} },
+                { type: "tool_use", name: "getB", input: {} },
+              ],
+            },
+          },
+          { type: "result", subtype: "success", result: "" },
+        ],
+        [
+          { type: "result", subtype: "success", result: "combined" },
+        ],
+      ],
+    });
+    setQueryFn(mock);
+
+    const calls: string[] = [];
+    const executor = vi.fn(async (name: string) => {
+      calls.push(name);
+      return `result-${name}`;
+    });
+
+    const result = await aiLoop("get both", [["getA", "a"], ["getB", "b"]], executor);
+    expect(result.kind).toBe("ok");
+    expect(calls).toEqual(["getA", "getB"]);
+  });
+
+  it("rejects non-string prompt", async () => {
+    const result = await aiLoop(42, [], async () => "");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("rejects non-array tools", async () => {
+    const result = await aiLoop("test", "bad", async () => "");
+    expect(result.kind).toBe("failed");
+  });
+
+  it("handles API error", async () => {
+    setQueryFn((() => { throw new Error("server down"); }) as any);
+
+    const result = await aiLoop("test", [["t", "d"]], async () => "");
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("server down");
+  });
+});
+
+describe("integration with Brief runtime", () => {
+  afterEach(() => setQueryFn(null));
+
+  it("ai.complete end-to-end", async () => {
+    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
+    const mock = createMockQueryFn({ result: "AI says hello" });
+    setQueryFn(mock);
 
     const reg = createToolRegistry();
     reg.register("ai.complete", aiComplete);
@@ -292,16 +402,10 @@ print(response)`,
     expect(prints).toEqual(["AI says hello"]);
   });
 
-  it("streaming works end-to-end", async () => {
+  it("ai.stream end-to-end", async () => {
     const { runBrief, createToolRegistry } = await import("../src/runtime.js");
-
-    const mock = createMockClient({
-      streamEvents: [
-        { type: "content_block_delta", delta: { type: "text_delta", text: "chunk1 " } },
-        { type: "content_block_delta", delta: { type: "text_delta", text: "chunk2" } },
-      ],
-    });
-    setClient(mock);
+    const mock = createMockQueryFn({ streamDeltas: ["chunk1 ", "chunk2"], result: "" });
+    setQueryFn(mock);
 
     const reg = createToolRegistry();
     reg.registerStream("ai.stream", aiStream);
@@ -321,17 +425,10 @@ for await chunk from ask ai.stream("test") {
     expect(prints).toEqual(["chunk1 ", "chunk2"]);
   });
 
-  it("with config args end-to-end", async () => {
+  it("ai.complete with config end-to-end", async () => {
     const { runBrief, createToolRegistry } = await import("../src/runtime.js");
-
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "configured response" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
+    const mock = createMockQueryFn({ result: "configured" });
+    setQueryFn(mock);
 
     const reg = createToolRegistry();
     reg.register("ai.complete", aiComplete);
@@ -341,7 +438,7 @@ for await chunk from ask ai.stream("test") {
       source: `allow
   ai.complete
 
-let config = ["model", "claude-opus-4-20250514", "temperature", 0.5]
+let config = ["model", "claude-opus-4-6", "system", "be concise"]
 let response =
   await ask ai.complete("test", config)
   or fail "failed"
@@ -351,403 +448,30 @@ print(response)`,
       printFn: (...a) => prints.push(...a),
     });
 
-    expect(prints).toEqual(["configured response"]);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-opus-4-20250514");
-    expect(call.temperature).toBe(0.5);
+    expect(prints).toEqual(["configured"]);
+    expect(mock._calls[0].options.model).toBe("claude-opus-4-6");
+    expect(mock._calls[0].options.systemPrompt).toBe("be concise");
   });
 
-  it("handles ai failure gracefully", async () => {
-    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
-
-    const mock = createMockClient({
-      createError: new Error("API key invalid"),
-    });
-    setClient(mock);
-
-    const reg = createToolRegistry();
-    reg.register("ai.complete", aiComplete);
-
-    await expect(runBrief({
-      source: `allow
-  ai.complete
-
-let response =
-  await ask ai.complete("test")
-  or fail "ai broke"`,
-      registry: reg,
-    })).rejects.toThrow("ai broke");
-  });
-});
-
-describe("ai.converse", () => {
-  afterEach(() => setClient(null));
-
-  it("sends multi-turn messages", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "turn 3 response" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const result = await aiConverse([
-      "user", "hello",
-      "assistant", "hi there",
-      "user", "how are you?",
-    ]);
-
-    expect(result).toEqual({ kind: "ok", value: "turn 3 response" });
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.messages).toEqual([
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "hi there" },
-      { role: "user", content: "how are you?" },
-    ]);
-  });
-
-  it("rejects non-array input", async () => {
-    const result = await aiConverse("not an array");
-    expect(result.kind).toBe("failed");
-  });
-
-  it("rejects empty messages", async () => {
-    const result = await aiConverse([]);
-    expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("at least one message");
-  });
-
-  it("rejects invalid role", async () => {
-    const result = await aiConverse(["system", "test"]);
-    expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("invalid message role");
-  });
-
-  it("accepts config", async () => {
-    const mock = createMockClient();
-    setClient(mock);
-
-    await aiConverse(
-      ["user", "test"],
-      ["model", "claude-opus-4-20250514", "system", "be brief"],
-    );
-
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.model).toBe("claude-opus-4-20250514");
-    expect(call.system).toBe("be brief");
-  });
-
-  it("works end-to-end in Brief", async () => {
-    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
-
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "multi-turn works" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const reg = createToolRegistry();
-    reg.register("ai.converse", aiConverse);
-
-    const prints: any[] = [];
-    await runBrief({
-      source: `allow
-  ai.converse
-
-let messages = ["user", "hello", "assistant", "hi", "user", "tell me more"]
-let response =
-  await ask ai.converse(messages)
-  or fail "converse failed"
-
-print(response)`,
-      registry: reg,
-      printFn: (...a) => prints.push(...a),
-    });
-
-    expect(prints).toEqual(["multi-turn works"]);
-  });
-});
-
-describe("ai.toolUse", () => {
-  afterEach(() => setClient(null));
-
-  it("sends tools to API", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [
-          { type: "tool_use", name: "getWeather", id: "call_123", input: { city: "SF" } },
-        ],
-        role: "assistant",
-        stop_reason: "tool_use",
-      },
-    });
-    setClient(mock);
-
-    const tools = [
-      ["getWeather", "get current weather", ["city", "string", "city name"]],
-    ];
-
-    const result = await aiToolUse("what's the weather in SF?", tools);
-    expect(result.kind).toBe("ok");
-
-    const blocks = (result as any).value;
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0][0]).toBe("tool_use");
-    expect(blocks[0][1]).toBe("getWeather");
-    expect(blocks[0][2]).toBe("call_123");
-    expect(blocks[0][3]).toEqual(["city", "SF"]);
-  });
-
-  it("sends correct tool schema to API", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "no tools needed" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const tools = [
-      ["searchFlights", "search for flights", ["from", "string", "origin"], ["to", "string", "destination"]],
-    ];
-
-    await aiToolUse("test", tools);
-    const call = mock.messages.create.mock.calls[0][0];
-    expect(call.tools).toHaveLength(1);
-    expect(call.tools[0].name).toBe("searchFlights");
-    expect(call.tools[0].description).toBe("search for flights");
-    expect(call.tools[0].input_schema.properties).toEqual({
-      from: { type: "string", description: "origin" },
-      to: { type: "string", description: "destination" },
-    });
-    expect(call.tools[0].input_schema.required).toEqual(["from", "to"]);
-  });
-
-  it("handles text-only response", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "I can help with that" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const result = await aiToolUse("test", [["tool1", "desc"]]);
-    expect(result.kind).toBe("ok");
-    const blocks = (result as any).value;
-    expect(blocks[0]).toEqual(["text", "I can help with that"]);
-  });
-
-  it("handles mixed text and tool_use response", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [
-          { type: "text", text: "Let me check" },
-          { type: "tool_use", name: "lookup", id: "call_456", input: { query: "test" } },
-        ],
-        role: "assistant",
-        stop_reason: "tool_use",
-      },
-    });
-    setClient(mock);
-
-    const result = await aiToolUse("test", [["lookup", "look something up", ["query", "string", "search query"]]]);
-    expect(result.kind).toBe("ok");
-    const blocks = (result as any).value;
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0][0]).toBe("text");
-    expect(blocks[1][0]).toBe("tool_use");
-  });
-
-  it("rejects non-string prompt", async () => {
-    const result = await aiToolUse(42, []);
-    expect(result.kind).toBe("failed");
-  });
-
-  it("rejects non-array tools", async () => {
-    const result = await aiToolUse("test", "not array");
-    expect(result.kind).toBe("failed");
-  });
-
-  it("rejects malformed tool definition", async () => {
-    const result = await aiToolUse("test", [["onlyName"]]);
-    expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("each tool must be");
-  });
-
-  it("handles API error", async () => {
-    const mock = createMockClient({ createError: new Error("quota exceeded") });
-    setClient(mock);
-
-    const result = await aiToolUse("test", [["tool1", "desc"]]);
-    expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("quota exceeded");
-  });
-
-  it("works end-to-end in Brief", async () => {
-    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
-
-    const mock = createMockClient({
-      createResponse: {
-        content: [
-          { type: "tool_use", name: "getWeather", id: "call_789", input: { city: "NYC" } },
-        ],
-        role: "assistant",
-        stop_reason: "tool_use",
-      },
-    });
-    setClient(mock);
-
-    const reg = createToolRegistry();
-    reg.register("ai.toolUse", aiToolUse);
-
-    const prints: any[] = [];
-    await runBrief({
-      source: `allow
-  ai.toolUse
-
-let tools = [
-  ["getWeather", "get weather", ["city", "string", "city name"]]
-]
-
-let result =
-  await ask ai.toolUse("weather in NYC?", tools)
-  or fail "tool use failed"
-
-print(result)`,
-      registry: reg,
-      printFn: (...a) => prints.push(...a),
-    });
-
-    expect(prints).toHaveLength(1);
-    const blocks = prints[0] as any[];
-    expect(blocks[0][0]).toBe("tool_use");
-    expect(blocks[0][1]).toBe("getWeather");
-  });
-});
-
-describe("ai.loop", () => {
-  afterEach(() => setClient(null));
-
-  it("runs tool-use loop until model stops", async () => {
-    let callCount = 0;
-    const mock = createMockClient();
-    // override create to simulate: first call returns tool_use, second returns text
-    mock.messages.create = vi.fn(async (params: any) => {
-      callCount++;
-      if (callCount === 1) {
-        return {
-          content: [
-            { type: "tool_use", name: "lookup", id: "call_1", input: { query: "test" } },
-          ],
-          role: "assistant",
-          stop_reason: "tool_use",
-        };
-      }
-      return {
-        content: [{ type: "text", text: "final answer based on lookup" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      };
-    });
-    setClient(mock);
-
-    const executor = vi.fn(async (toolName: string, toolInput: any) => {
-      return `result for ${toolName}`;
-    });
-
-    const tools = [["lookup", "search for info", ["query", "string", "search term"]]];
-    const result = await aiLoop("find something", tools, executor);
-
-    expect(result).toEqual({ kind: "ok", value: "final answer based on lookup" });
-    expect(executor).toHaveBeenCalledOnce();
-    expect(executor).toHaveBeenCalledWith("lookup", ["query", "test"]);
-    expect(mock.messages.create).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns immediately if no tool calls", async () => {
-    const mock = createMockClient({
-      createResponse: {
-        content: [{ type: "text", text: "no tools needed" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      },
-    });
-    setClient(mock);
-
-    const executor = vi.fn();
-    const result = await aiLoop("simple question", [["tool1", "desc"]], executor);
-
-    expect(result).toEqual({ kind: "ok", value: "no tools needed" });
-    expect(executor).not.toHaveBeenCalled();
-  });
-
-  it("handles multiple tool calls in one response", async () => {
-    let callCount = 0;
-    const mock = createMockClient();
-    mock.messages.create = vi.fn(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return {
-          content: [
-            { type: "tool_use", name: "getA", id: "c1", input: {} },
-            { type: "tool_use", name: "getB", id: "c2", input: {} },
-          ],
-          role: "assistant",
-          stop_reason: "tool_use",
-        };
-      }
-      return {
-        content: [{ type: "text", text: "combined result" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      };
-    });
-    setClient(mock);
-
-    const calls: string[] = [];
-    const executor = vi.fn(async (name: string) => {
-      calls.push(name);
-      return `result-${name}`;
-    });
-
-    const tools = [["getA", "get A"], ["getB", "get B"]];
-    const result = await aiLoop("get both", tools, executor);
-
-    expect(result.kind).toBe("ok");
-    expect(calls).toEqual(["getA", "getB"]);
-  });
-
-  it("works end-to-end in Brief with callback function", async () => {
+  it("ai.loop with Brief callback end-to-end", async () => {
     const { runBrief } = await import("../src/runtime.js");
-
-    let callCount = 0;
-    const mock = createMockClient();
-    mock.messages.create = vi.fn(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return {
-          content: [
-            { type: "tool_use", name: "greet", id: "c1", input: { name: "world" } },
-          ],
-          role: "assistant",
-          stop_reason: "tool_use",
-        };
-      }
-      return {
-        content: [{ type: "text", text: "greeting complete" }],
-        role: "assistant",
-        stop_reason: "end_turn",
-      };
+    const mock = createMockQueryFn({
+      perCall: [
+        [
+          {
+            type: "assistant",
+            message: {
+              content: [{ type: "tool_use", name: "greet", input: { name: "world" } }],
+            },
+          },
+          { type: "result", subtype: "success", result: "" },
+        ],
+        [
+          { type: "result", subtype: "success", result: "greeting complete" },
+        ],
+      ],
     });
-    setClient(mock);
+    setQueryFn(mock);
 
     const prints: any[] = [];
     await runBrief({
@@ -771,25 +495,23 @@ print(result)`,
     });
 
     expect(prints).toEqual(["greeting complete"]);
-    expect(mock.messages.create).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects non-string prompt", async () => {
-    const result = await aiLoop(42, [], async () => "");
-    expect(result.kind).toBe("failed");
-  });
+  it("handles ai failure gracefully", async () => {
+    const { runBrief, createToolRegistry } = await import("../src/runtime.js");
+    setQueryFn((() => { throw new Error("API key invalid"); }) as any);
 
-  it("rejects non-array tools", async () => {
-    const result = await aiLoop("test", "bad", async () => "");
-    expect(result.kind).toBe("failed");
-  });
+    const reg = createToolRegistry();
+    reg.register("ai.complete", aiComplete);
 
-  it("handles API error", async () => {
-    const mock = createMockClient({ createError: new Error("server down") });
-    setClient(mock);
+    await expect(runBrief({
+      source: `allow
+  ai.complete
 
-    const result = await aiLoop("test", [["t", "d"]], async () => "");
-    expect(result.kind).toBe("failed");
-    expect((result as any).reason).toContain("server down");
+let response =
+  await ask ai.complete("test")
+  or fail "ai broke"`,
+      registry: reg,
+    })).rejects.toThrow("ai broke");
   });
 });

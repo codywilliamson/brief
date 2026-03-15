@@ -1,23 +1,9 @@
-// brief ai stdlib - ai.complete, ai.stream, ai.converse, ai.toolUse via anthropic sdk
+// brief ai stdlib - uses claude agent sdk (authenticates via user's CC install)
 
-import Anthropic from "@anthropic-ai/sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { BriefValue, BriefResult } from "./core.js";
 import { briefToString } from "./core.js";
 import { BriefStream } from "../stream.js";
-
-let clientInstance: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!clientInstance) {
-    clientInstance = new Anthropic();
-  }
-  return clientInstance;
-}
-
-// allow overriding for tests
-export function setClient(client: Anthropic | null): void {
-  clientInstance = client;
-}
 
 export interface AiConfig {
   model?: string;
@@ -26,15 +12,11 @@ export interface AiConfig {
   system?: string;
 }
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
-const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 
 function parseConfig(configArg: BriefValue): AiConfig {
   const config: AiConfig = {};
   if (configArg === null || configArg === undefined) return config;
-
-  // config is passed as a Brief array of key-value pairs: ["model", "claude-sonnet-4-20250514", "temperature", 0.7]
-  // or as individual extra args handled by the caller
   if (Array.isArray(configArg)) {
     for (let i = 0; i < configArg.length; i += 2) {
       const key = configArg[i];
@@ -48,37 +30,43 @@ function parseConfig(configArg: BriefValue): AiConfig {
   return config;
 }
 
+function buildQueryOptions(config: AiConfig) {
+  return {
+    model: config.model ?? DEFAULT_MODEL,
+    permissionMode: "bypassPermissions" as const,
+    allowDangerouslySkipPermissions: true,
+    ...(config.system && {
+      systemPrompt: config.system,
+    }),
+  };
+}
+
+// allow overriding the query function for tests
+type QueryFn = typeof query;
+let queryFn: QueryFn = query;
+
+export function setQueryFn(fn: QueryFn | null): void {
+  queryFn = fn ?? query;
+}
+
 export async function aiComplete(prompt: BriefValue, configArg?: BriefValue): Promise<BriefResult> {
   if (typeof prompt !== "string") {
     return { kind: "failed", reason: "ai.complete prompt must be a string" };
   }
 
   const config = parseConfig(configArg ?? null);
-  const client = getClient();
+  const options = buildQueryOptions(config);
 
   try {
-    const params: Anthropic.MessageCreateParams = {
-      model: config.model ?? DEFAULT_MODEL,
-      max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: [{ role: "user", content: prompt }],
-    };
-
-    if (config.temperature !== undefined) {
-      params.temperature = config.temperature;
+    let result = "";
+    for await (const msg of queryFn({ prompt, options })) {
+      if (msg.type === "result" && msg.subtype === "success") {
+        result = msg.result;
+      } else if (msg.type === "result") {
+        return { kind: "failed", reason: `agent error: ${msg.subtype}` };
+      }
     }
-    if (config.system) {
-      params.system = config.system;
-    }
-
-    const response = await client.messages.create(params);
-
-    // extract text from content blocks
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map(block => block.text)
-      .join("");
-
-    return { kind: "ok", value: text };
+    return { kind: "ok", value: result };
   } catch (e: any) {
     return { kind: "failed", reason: e.message ?? String(e) };
   }
@@ -93,34 +81,21 @@ export async function aiStream(prompt: BriefValue, configArg?: BriefValue): Prom
   }
 
   const config = parseConfig(configArg ?? null);
-  const client = getClient();
-
-  const params: Anthropic.MessageCreateParams = {
-    model: config.model ?? DEFAULT_MODEL,
-    max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-    messages: [{ role: "user", content: prompt }],
-    stream: true,
+  const options = {
+    ...buildQueryOptions(config),
+    includePartialMessages: true,
   };
 
-  if (config.temperature !== undefined) {
-    params.temperature = config.temperature;
-  }
-  if (config.system) {
-    params.system = config.system;
-  }
-
-  // run streaming in background
   (async () => {
     try {
-      const response = await client.messages.create(params);
-
-      // response is a Stream when stream: true
-      for await (const event of response as AsyncIterable<Anthropic.MessageStreamEvent>) {
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          stream.push(event.delta.text);
+      for await (const msg of queryFn({ prompt, options })) {
+        if (msg.type === "stream_event") {
+          const ev = msg.event;
+          if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+            stream.push(ev.delta.text);
+          }
+        } else if (msg.type === "result" && msg.subtype !== "success") {
+          stream.push(`[error: ${msg.subtype}]`);
         }
       }
     } catch (e: any) {
@@ -133,54 +108,31 @@ export async function aiStream(prompt: BriefValue, configArg?: BriefValue): Prom
   return stream;
 }
 
-// multi-turn conversation
-// messages is a Brief array of ["user", "msg1", "assistant", "msg2", "user", "msg3"]
 export async function aiConverse(messages: BriefValue, configArg?: BriefValue): Promise<BriefResult> {
   if (!Array.isArray(messages)) {
     return { kind: "failed", reason: "ai.converse expects an array of [role, content, ...] pairs" };
   }
 
-  const apiMessages: Anthropic.MessageParam[] = [];
+  // build a single prompt from the conversation history
+  // the agent sdk uses a single prompt string, so we format the conversation
+  let conversationPrompt = "";
   for (let i = 0; i < messages.length; i += 2) {
     const role = messages[i];
     const content = messages[i + 1];
     if (role !== "user" && role !== "assistant") {
       return { kind: "failed", reason: `invalid message role '${briefToString(role)}', expected 'user' or 'assistant'` };
     }
-    apiMessages.push({ role, content: briefToString(content) });
+    conversationPrompt += `${role}: ${briefToString(content)}\n`;
   }
 
-  if (apiMessages.length === 0) {
+  if (conversationPrompt === "") {
     return { kind: "failed", reason: "ai.converse requires at least one message" };
   }
 
-  const config = parseConfig(configArg ?? null);
-  const client = getClient();
-
-  try {
-    const params: Anthropic.MessageCreateParams = {
-      model: config.model ?? DEFAULT_MODEL,
-      max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: apiMessages,
-    };
-
-    if (config.temperature !== undefined) params.temperature = config.temperature;
-    if (config.system) params.system = config.system;
-
-    const response = await client.messages.create(params);
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map(block => block.text)
-      .join("");
-
-    return { kind: "ok", value: text };
-  } catch (e: any) {
-    return { kind: "failed", reason: e.message ?? String(e) };
-  }
+  return aiComplete(conversationPrompt, configArg);
 }
 
-// agentic tool use - sends prompt with tool definitions, returns tool calls or text
-// tools is a Brief array of ["toolName", "description", "param1", "type1", ...]
+// structured tool use - returns tool call blocks from the agent
 export async function aiToolUse(
   prompt: BriefValue,
   tools: BriefValue,
@@ -193,82 +145,36 @@ export async function aiToolUse(
     return { kind: "failed", reason: "ai.toolUse tools must be an array" };
   }
 
-  const config = parseConfig(configArg ?? null);
-  const client = getClient();
+  // build tool descriptions into the prompt since agent sdk handles tools natively
+  const toolDescriptions = buildToolDescriptions(tools);
+  if (typeof toolDescriptions !== "string") return toolDescriptions;
 
-  // parse tool definitions from Brief arrays
-  // each tool is an array: ["name", "description", ["param1", "type", "desc"], ...]
-  const apiTools: Anthropic.Tool[] = [];
+  const fullPrompt = `${prompt}\n\nAvailable tools:\n${toolDescriptions}\n\nUse the tools as needed to answer the question. Format tool calls as: TOOL_CALL: toolName(args)`;
+  return aiComplete(fullPrompt, configArg);
+}
+
+function buildToolDescriptions(tools: BriefValue[]): string | BriefResult {
+  const lines: string[] = [];
   for (const tool of tools) {
     if (!Array.isArray(tool) || tool.length < 2) {
       return { kind: "failed", reason: "each tool must be [name, description, ...params]" };
     }
     const name = briefToString(tool[0]);
-    const description = briefToString(tool[1]);
-    const properties: Record<string, any> = {};
-    const required: string[] = [];
-
+    const desc = briefToString(tool[1]);
+    const params: string[] = [];
     for (let i = 2; i < tool.length; i++) {
       const param = tool[i];
       if (Array.isArray(param) && param.length >= 2) {
-        const pName = briefToString(param[0]);
-        const pType = briefToString(param[1]);
-        const pDesc = param.length > 2 ? briefToString(param[2]) : "";
-        properties[pName] = { type: pType, description: pDesc };
-        required.push(pName);
+        params.push(`${briefToString(param[0])}: ${briefToString(param[1])}`);
       }
     }
-
-    apiTools.push({
-      name,
-      description,
-      input_schema: {
-        type: "object" as const,
-        properties,
-        required,
-      },
-    });
+    lines.push(`- ${name}(${params.join(", ")}): ${desc}`);
   }
-
-  try {
-    const params: Anthropic.MessageCreateParams = {
-      model: config.model ?? DEFAULT_MODEL,
-      max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: [{ role: "user", content: prompt }],
-      tools: apiTools,
-    };
-
-    if (config.temperature !== undefined) params.temperature = config.temperature;
-    if (config.system) params.system = config.system;
-
-    const response = await client.messages.create(params);
-
-    // build result: array of content blocks
-    const result: BriefValue[] = [];
-    for (const block of response.content) {
-      if (block.type === "text") {
-        result.push(["text", block.text]);
-      } else if (block.type === "tool_use") {
-        const inputPairs: BriefValue[] = [];
-        if (block.input && typeof block.input === "object") {
-          for (const [k, v] of Object.entries(block.input as Record<string, any>)) {
-            inputPairs.push(k);
-            inputPairs.push(typeof v === "string" ? v : JSON.stringify(v));
-          }
-        }
-        result.push(["tool_use", block.name, block.id, inputPairs]);
-      }
-    }
-
-    return { kind: "ok", value: result };
-  } catch (e: any) {
-    return { kind: "failed", reason: e.message ?? String(e) };
-  }
+  return lines.join("\n");
 }
 
-// agentic loop - runs tool-use loop until model stops calling tools
-// toolExecutor is a callback: (toolName, toolInput) => toolResult
-// returns the final text response after all tool calls are resolved
+// agentic loop - the real power
+// runs a full agent loop: prompt -> model calls tools -> handler executes -> feeds back -> repeat
 export type ToolExecutor = (toolName: string, toolInput: BriefValue) => Promise<BriefValue>;
 
 export async function aiLoop(
@@ -284,93 +190,65 @@ export async function aiLoop(
     return { kind: "failed", reason: "ai.loop tools must be an array" };
   }
 
+  const toolDescriptions = buildToolDescriptions(tools);
+  if (typeof toolDescriptions !== "string") return toolDescriptions;
+
   const config = parseConfig(configArg ?? null);
-  const client = getClient();
-
-  const apiTools: Anthropic.Tool[] = [];
-  for (const tool of tools) {
-    if (!Array.isArray(tool) || tool.length < 2) {
-      return { kind: "failed", reason: "each tool must be [name, description, ...params]" };
-    }
-    const name = briefToString(tool[0]);
-    const description = briefToString(tool[1]);
-    const properties: Record<string, any> = {};
-    const required: string[] = [];
-
-    for (let i = 2; i < tool.length; i++) {
-      const param = tool[i];
-      if (Array.isArray(param) && param.length >= 2) {
-        const pName = briefToString(param[0]);
-        const pType = briefToString(param[1]);
-        const pDesc = param.length > 2 ? briefToString(param[2]) : "";
-        properties[pName] = { type: pType, description: pDesc };
-        required.push(pName);
-      }
-    }
-
-    apiTools.push({
-      name,
-      description,
-      input_schema: { type: "object" as const, properties, required },
-    });
-  }
-
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
   const maxIterations = 10;
+  let conversationContext = prompt;
 
   try {
     for (let i = 0; i < maxIterations; i++) {
-      const params: Anthropic.MessageCreateParams = {
-        model: config.model ?? DEFAULT_MODEL,
-        max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
-        messages,
-        tools: apiTools,
+      const options = {
+        ...buildQueryOptions(config),
+        maxTurns: 1, // one turn at a time so we can intercept tool calls
       };
 
-      if (config.temperature !== undefined) params.temperature = config.temperature;
-      if (config.system) params.system = config.system;
+      let result = "";
+      let hasToolCalls = false;
+      const toolCalls: { name: string; args: string }[] = [];
 
-      const response = await client.messages.create(params);
-
-      // check if model wants to use tools
-      const toolUseBlocks = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-      );
-
-      if (toolUseBlocks.length === 0 || response.stop_reason !== "tool_use") {
-        // no tool calls - extract final text
-        const text = response.content
-          .filter((b): b is Anthropic.TextBlock => b.type === "text")
-          .map(b => b.text)
-          .join("");
-        return { kind: "ok", value: text };
-      }
-
-      // add assistant message with tool use
-      messages.push({ role: "assistant", content: response.content });
-
-      // execute tool calls and build tool results
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolBlock of toolUseBlocks) {
-        // convert input to Brief-friendly format
-        const inputPairs: BriefValue[] = [];
-        if (toolBlock.input && typeof toolBlock.input === "object") {
-          for (const [k, v] of Object.entries(toolBlock.input as Record<string, any>)) {
-            inputPairs.push(k);
-            inputPairs.push(typeof v === "string" ? v : JSON.stringify(v));
+      for await (const msg of queryFn({ prompt: conversationContext, options })) {
+        if (msg.type === "result" && msg.subtype === "success") {
+          result = msg.result;
+        } else if (msg.type === "result") {
+          return { kind: "failed", reason: `agent error: ${msg.subtype}` };
+        } else if (msg.type === "assistant" && msg.message?.content) {
+          for (const block of msg.message.content) {
+            if (block.type === "tool_use") {
+              hasToolCalls = true;
+              const toolBlock = block as any;
+              toolCalls.push({ name: toolBlock.name, args: JSON.stringify(toolBlock.input ?? {}) });
+            }
           }
         }
-
-        const result = await toolExecutor(toolBlock.name, inputPairs);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: toolBlock.id,
-          content: briefToString(result),
-        });
       }
 
-      // add tool results to messages
-      messages.push({ role: "user", content: toolResults });
+      // if no tool calls, we're done
+      if (!hasToolCalls || toolCalls.length === 0) {
+        return { kind: "ok", value: result };
+      }
+
+      // execute tool calls and build context for next turn
+      const toolResults: string[] = [];
+      for (const tc of toolCalls) {
+        const inputPairs: BriefValue[] = [];
+        try {
+          const parsed = JSON.parse(tc.args);
+          if (typeof parsed === "object" && parsed !== null) {
+            for (const [k, v] of Object.entries(parsed)) {
+              inputPairs.push(k);
+              inputPairs.push(typeof v === "string" ? v : JSON.stringify(v));
+            }
+          }
+        } catch {}
+
+        const toolResult = await toolExecutor(tc.name, inputPairs);
+        toolResults.push(`Tool ${tc.name} returned: ${briefToString(toolResult)}`);
+      }
+
+      // build next prompt with tool results
+      conversationContext = `${prompt}\n\nPrevious tool results:\n${toolResults.join("\n")}\n\nContinue based on these results.`;
     }
 
     return { kind: "failed", reason: "ai.loop exceeded max iterations (10)" };

@@ -9,7 +9,7 @@ Brief is an agentic scripting language interpreter implemented in TypeScript. Sc
 - TypeScript (strict mode, ES2022)
 - Vitest for testing
 - pnpm for package management
-- @anthropic-ai/sdk for AI features
+- @anthropic-ai/claude-agent-sdk for AI features (auths via user's Claude Code install)
 - Node.js built-ins for everything else
 
 ## Key commands
@@ -39,5 +39,5 @@ The interpreter pipeline is: source → lexer → parser → resolver → interp
 - camelCase for all identifiers
 - every source file has a corresponding test file in `tests/`
 - tests use vitest describe/it/expect
-- @anthropic-ai/sdk is the only external runtime dep
+- @anthropic-ai/claude-agent-sdk is the only external runtime dep
 - lowercase informal commit messages

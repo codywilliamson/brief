@@ -2,7 +2,7 @@
 
 ## Overview
 
-Brief is an agentic scripting language designed to be written by AI agents and audited by humans. Scripts are single-file, execute top to bottom, and are optimized for readability over writability. The interpreter is implemented in TypeScript with direct Anthropic SDK integration for AI capabilities.
+Brief is an agentic scripting language designed to be written by AI agents and audited by humans. Scripts are single-file, execute top to bottom, and are optimized for readability over writability. The interpreter is implemented in TypeScript, powered by the Claude Agent SDK — it authenticates through the user's Claude Code install.
 
 ---
 

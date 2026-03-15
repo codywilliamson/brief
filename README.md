@@ -2,17 +2,18 @@
 
 An agentic scripting language designed to be written by AI agents and audited by humans.
 
-Brief scripts are single-file `.br` programs that execute top to bottom with a permission-gated tool system. The interpreter is TypeScript with direct Anthropic SDK integration.
+Brief scripts are single-file `.br` programs that execute top to bottom with a permission-gated tool system. The interpreter is TypeScript, powered by the Claude Agent SDK — it authenticates through your Claude Code install, no API key setup needed.
 
 ## Quick start
 
 ```bash
 pnpm install
-export ANTHROPIC_API_KEY=sk-...
 pnpm brief run script.br
 pnpm brief test script.br
 pnpm brief repl
 ```
+
+> Requires `ANTHROPIC_API_KEY` in your environment (automatically set by Claude Code).
 
 ## Example
 
@@ -71,7 +72,7 @@ print(result)
 
 ## AI tools
 
-All AI tools use the Anthropic SDK directly. Optional config via key-value arrays:
+All AI tools use the Claude Agent SDK (authenticates via your Claude Code install). Optional config via key-value arrays:
 
 ```
 let config = ["model", "claude-opus-4-20250514", "temperature", 0.7, "system", "be concise"]
@@ -129,7 +130,7 @@ src/
   stream.ts        BriefStream<T> for async iteration
   stdlib/
     core.ts        print, len, trim, split, join, slice, parseInt, parseFloat, toString
-    ai.ts          ai.complete, ai.stream, ai.converse, ai.toolUse, ai.loop (Anthropic SDK)
+    ai.ts          ai.complete, ai.stream, ai.converse, ai.toolUse, ai.loop (Claude Agent SDK)
     fs.ts          fs.read, fs.write
     http.ts        http.fetch, http.post
   test-runner.ts   test block execution
@@ -139,7 +140,7 @@ src/
 ## Testing
 
 ```bash
-pnpm test        # 170 tests across 7 suites
+pnpm test        # 161 tests across 7 suites
 ```
 
 ## Spec
