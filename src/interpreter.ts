@@ -510,17 +510,17 @@ function evalBinary(op: string, left: BriefValue, right: BriefValue, line: numbe
     case "==": return briefEquals(left, right);
     case "!=": return !briefEquals(left, right);
     case ">":
-      assertNumbers(left, right, ">", line);
-      return (left as number) > (right as number);
+      assertComparable(left, right, ">", line);
+      return (left as any) > (right as any);
     case "<":
-      assertNumbers(left, right, "<", line);
-      return (left as number) < (right as number);
+      assertComparable(left, right, "<", line);
+      return (left as any) < (right as any);
     case ">=":
-      assertNumbers(left, right, ">=", line);
-      return (left as number) >= (right as number);
+      assertComparable(left, right, ">=", line);
+      return (left as any) >= (right as any);
     case "<=":
-      assertNumbers(left, right, "<=", line);
-      return (left as number) <= (right as number);
+      assertComparable(left, right, "<=", line);
+      return (left as any) <= (right as any);
     case "&&": return isTruthy(left) ? right : left;
     case "||": return isTruthy(left) ? left : right;
     default:
@@ -532,6 +532,12 @@ function assertNumbers(left: BriefValue, right: BriefValue, op: string, line: nu
   if (typeof left !== "number" || typeof right !== "number") {
     throw new BriefRuntimeError(`'${op}' requires numbers`, line);
   }
+}
+
+function assertComparable(left: BriefValue, right: BriefValue, op: string, line: number): void {
+  if (typeof left === "number" && typeof right === "number") return;
+  if (typeof left === "string" && typeof right === "string") return;
+  throw new BriefRuntimeError(`'${op}' requires numbers or strings of same type`, line);
 }
 
 function briefEquals(a: BriefValue, b: BriefValue): boolean {

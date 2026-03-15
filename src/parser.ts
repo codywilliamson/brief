@@ -100,9 +100,9 @@ export class Parser {
     if (this.check(TokenType.LeftBracket)) {
       this.advance(); // consume '['
       const names: string[] = [];
-      names.push(this.expect(TokenType.Identifier, "expected variable name in destructuring").value);
+      names.push(this.expectName("expected variable name in destructuring").value);
       while (this.match(TokenType.Comma)) {
-        names.push(this.expect(TokenType.Identifier, "expected variable name in destructuring").value);
+        names.push(this.expectName("expected variable name in destructuring").value);
       }
       this.expect(TokenType.RightBracket, "expected ']' in destructuring pattern");
       this.expect(TokenType.Equal, "expected '=' in let declaration");
@@ -111,11 +111,11 @@ export class Parser {
       return { kind: "LetDestructure", names, value, line: tok.line };
     }
 
-    const name = this.expect(TokenType.Identifier, "expected variable name").value;
+    const name = this.expectName("expected variable name").value;
 
     let typeAnnotation: string | undefined;
     if (this.match(TokenType.Colon)) {
-      typeAnnotation = this.expect(TokenType.Identifier, "expected type name").value;
+      typeAnnotation = this.expectName("expected type name").value;
     }
 
     this.expect(TokenType.Equal, "expected '=' in let declaration");
@@ -127,7 +127,7 @@ export class Parser {
 
   private parseSetStmt(): AST.SetStmt {
     const tok = this.advance(); // consume 'set'
-    const name = this.expect(TokenType.Identifier, "expected variable name").value;
+    const name = this.expectName("expected variable name").value;
     this.expect(TokenType.Equal, "expected '=' in set statement");
     this.skipNewlines();
     const value = this.parseExpression();
@@ -137,14 +137,14 @@ export class Parser {
   private parseFnDecl(): AST.FnDecl {
     const tok = this.advance(); // consume 'async'
     this.expect(TokenType.Fn, "expected 'fn' after 'async'");
-    const name = this.expect(TokenType.Identifier, "expected function name").value;
+    const name = this.expectName("expected function name").value;
     this.expect(TokenType.LeftParen, "expected '('");
 
     const params: string[] = [];
     if (!this.check(TokenType.RightParen)) {
-      params.push(this.expect(TokenType.Identifier, "expected parameter name").value);
+      params.push(this.expectName("expected parameter name").value);
       while (this.match(TokenType.Comma)) {
-        params.push(this.expect(TokenType.Identifier, "expected parameter name").value);
+        params.push(this.expectName("expected parameter name").value);
       }
     }
     this.expect(TokenType.RightParen, "expected ')'");
@@ -368,6 +368,11 @@ export class Parser {
   }
 
   // --- expressions ---
+
+  // public for use by interpolated string expression parsing
+  parseExpressionPublic(): Node {
+    return this.parseExpression();
+  }
 
   private parseExpression(): Node {
     return this.parseOr();
@@ -607,8 +612,8 @@ export class Parser {
 
     if (this.check(TokenType.String)) {
       const t = this.advance();
-      // check for interpolation
-      if (t.value.includes("{") && t.value.includes("}")) {
+      // check for interpolation - only if { is followed by an identifier-like char
+      if (hasInterpolation(t.value)) {
         return this.parseInterpolatedString(t);
       }
       return { kind: "StringLit", value: t.value, line: t.line } as AST.StringLit;
@@ -655,6 +660,13 @@ export class Parser {
       return this.parseAskExpr();
     }
 
+    // allow keywords as identifiers in expression position (for dogfooding)
+    const kwTok = this.peek();
+    if (kwTok.type >= TokenType.Allow && kwTok.type <= TokenType.Set) {
+      const t = this.advance();
+      return { kind: "IdentExpr", name: t.value, line: t.line } as AST.IdentExpr;
+    }
+
     throw this.error(`unexpected token '${tok.value}' (${TokenType[tok.type]})`, tok);
   }
 
@@ -665,19 +677,32 @@ export class Parser {
     const str = tok.value;
 
     while (i < str.length) {
-      if (str[i] === "{") {
+      if (str[i] === "{" && i + 1 < str.length && isInterpolationStart(str[i + 1])) {
         if (current) {
           parts.push(current);
           current = "";
         }
         i++; // skip {
-        let varName = "";
-        while (i < str.length && str[i] !== "}") {
-          varName += str[i];
+        let exprStr = "";
+        let braceDepth = 1;
+        while (i < str.length && braceDepth > 0) {
+          if (str[i] === "{") braceDepth++;
+          if (str[i] === "}") braceDepth--;
+          if (braceDepth > 0) exprStr += str[i];
           i++;
         }
-        i++; // skip }
-        parts.push({ kind: "IdentExpr", name: varName, line: tok.line } as AST.IdentExpr);
+        // parse the expression inside braces
+        try {
+          const exprTokens = tokenize(exprStr);
+          const exprParser = new Parser(exprTokens);
+          const expr = exprParser.parseExpressionPublic();
+          parts.push(expr);
+        } catch (e: any) {
+          throw new ParseError(
+            `error in interpolated expression '{${exprStr}}': ${e.message}`,
+            tok.line, tok.column,
+          );
+        }
       } else {
         current += str[i];
         i++;
@@ -778,6 +803,15 @@ export class Parser {
     throw this.error(`${message}, got '${tok.value}' (${TokenType[tok.type]})`, tok);
   }
 
+  // accept identifier or keyword as a name (for fn names, params, variable names)
+  private expectName(message: string): Token {
+    const tok = this.peek();
+    if (tok.type === TokenType.Identifier || (tok.type >= TokenType.Allow && tok.type <= TokenType.Print) || tok.type === TokenType.Set) {
+      return this.advance();
+    }
+    throw this.error(`${message}, got '${tok.value}' (${TokenType[tok.type]})`, tok);
+  }
+
   private isAtEnd(): boolean {
     return this.pos >= this.tokens.length || this.tokens[this.pos].type === TokenType.EOF;
   }
@@ -791,6 +825,17 @@ export class Parser {
   private error(message: string, token: Token): ParseError {
     return new ParseError(message, token.line, token.column);
   }
+}
+
+function isInterpolationStart(ch: string): boolean {
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_" || ch === "!";
+}
+
+function hasInterpolation(str: string): boolean {
+  for (let i = 0; i < str.length - 1; i++) {
+    if (str[i] === "{" && isInterpolationStart(str[i + 1])) return true;
+  }
+  return false;
 }
 
 export function parse(source: string): AST.Program {

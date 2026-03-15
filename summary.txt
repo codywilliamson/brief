@@ -1,0 +1,5 @@
+- **Brief** is a single-file agentic scripting language (`.br`) designed to be written by AI agents and audited by humans, with a TypeScript interpreter powered by the Claude Agent SDK.
+- **Permission-gated tool system** requires scripts to explicitly declare access via `allow` blocks for tools like `fs.read`, `http.fetch`, and `ai.*` capabilities.
+- **AI-first stdlib** includes tools for completions, streaming, multi-turn conversation, structured tool calling, and full agentic loops where the model iteratively calls tools until done.
+- **Language features** include async/await, Result types with `or fail`/`or return` unwrapping, string interpolation, built-in `test` blocks with mocking, and optional gradual typing.
+- **Zero API key setup** — authenticates through an existing Claude Code install; run scripts via `pnpm brief run`, test with `pnpm brief test`, or explore interactively with `pnpm brief repl`.

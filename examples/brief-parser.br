@@ -1,0 +1,895 @@
+allow
+  fs.read
+
+# brief parser written in brief - parses .br source into an AST
+# AST nodes are tagged arrays: ["NodeType", ...fields]
+# usage: brief run examples/brief-parser.br <file.br>
+
+return failed("usage: brief run brief-parser.br <file.br>") if len(args) == 0
+
+let source =
+  await ask fs.read(args[0])
+  or fail "could not read {args[0]}"
+
+# ============================================================
+# tokenizer (inline since brief has no imports)
+# ============================================================
+
+let tokens = []
+let tpos = 0
+let tline = 1
+
+let keywords = [
+  "allow", "let", "set", "async", "fn", "return",
+  "if", "else", "unless", "until", "for", "in",
+  "with", "ctx", "await", "all", "ask", "or", "fail",
+  "when", "ok", "failed", "from", "test", "mock",
+  "expect", "to", "be", "returns", "print",
+  "true", "false", "null"
+]
+
+async fn isDigit(ch) {
+  return ch >= "0" && ch <= "9"
+}
+
+async fn isAlpha(ch) {
+  return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch == "_"
+}
+
+async fn isAlphaNum(ch) {
+  return isAlpha(ch) || isDigit(ch)
+}
+
+# two-char operator detection
+async fn isTwoCharOp(a, b) {
+  let pair = a + b
+  return pair == "==" || pair == "!=" || pair == ">=" || pair == "<=" || pair == "&&" || pair == "||" || pair == "=>"
+}
+
+# tokenize
+until tpos >= len(source) {
+  let ch = source[tpos]
+
+  if ch == " " || ch == "\t" || ch == "\r" {
+    set tpos = tpos + 1
+  } else {
+    if ch == "\n" {
+      set tokens = push(tokens, ["NL", "\n", tline])
+      set tpos = tpos + 1
+      set tline = tline + 1
+    } else {
+      if ch == "#" {
+        set tpos = tpos + 1
+        until tpos >= len(source) || source[tpos] == "\n" {
+          set tpos = tpos + 1
+        }
+      } else {
+        if isDigit(ch) {
+          let num = ""
+          until tpos >= len(source) || !isDigit(source[tpos]) {
+            set num = num + source[tpos]
+            set tpos = tpos + 1
+          }
+          if tpos < len(source) && source[tpos] == "." {
+            set num = num + "."
+            set tpos = tpos + 1
+            until tpos >= len(source) || !isDigit(source[tpos]) {
+              set num = num + source[tpos]
+              set tpos = tpos + 1
+            }
+          }
+          set tokens = push(tokens, ["NUM", num, tline])
+        } else {
+          if isAlpha(ch) {
+            let word = ""
+            until tpos >= len(source) || !isAlphaNum(source[tpos]) {
+              set word = word + source[tpos]
+              set tpos = tpos + 1
+            }
+            if contains(keywords, word) {
+              set tokens = push(tokens, ["KW", word, tline])
+            } else {
+              set tokens = push(tokens, ["ID", word, tline])
+            }
+          } else {
+            if ch == "\"" {
+              let str = ""
+              set tpos = tpos + 1
+              until tpos >= len(source) || source[tpos] == "\"" {
+                if source[tpos] == "\\" {
+                  set tpos = tpos + 1
+                  if tpos < len(source) {
+                    set str = str + source[tpos]
+                  }
+                } else {
+                  set str = str + source[tpos]
+                }
+                set tpos = tpos + 1
+              }
+              set tpos = tpos + 1
+              set tokens = push(tokens, ["STR", str, tline])
+            } else {
+              # check for two-char operators
+              if tpos + 1 < len(source) && isTwoCharOp(ch, source[tpos + 1]) {
+                set tokens = push(tokens, ["OP", ch + source[tpos + 1], tline])
+                set tpos = tpos + 2
+              } else {
+                set tokens = push(tokens, ["OP", ch, tline])
+                set tpos = tpos + 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+set tokens = push(tokens, ["EOF", "", tline])
+
+# ============================================================
+# parser - recursive descent
+# ============================================================
+
+let pos = 0
+
+# skip newline tokens
+async fn skipNL() {
+  until pos >= len(tokens) || tokens[pos][0] != "NL" {
+    set pos = pos + 1
+  }
+}
+
+# peek at current token
+async fn peek() {
+  return tokens[pos]
+}
+
+# advance and return current token
+async fn advance() {
+  let tok = tokens[pos]
+  set pos = pos + 1
+  return tok
+}
+
+# check if current token matches type and optional value
+async fn check(kind, val) {
+  if pos >= len(tokens) {
+    return false
+  }
+  let tok = tokens[pos]
+  if tok[0] != kind {
+    return false
+  }
+  if val != null && tok[1] != val {
+    return false
+  }
+  return true
+}
+
+# expect a token or error
+async fn expect(kind, val, msg) {
+  if !check(kind, val) {
+    let tok = tokens[pos]
+    return failed("parse error line {tok[2]}: {msg}, got {tok[0]} '{tok[1]}'")
+  }
+  return advance()
+}
+
+# match and consume if matches
+async fn match(kind, val) {
+  if check(kind, val) {
+    advance()
+    return true
+  }
+  return false
+}
+
+async fn isAtEnd() {
+  return pos >= len(tokens) || tokens[pos][0] == "EOF"
+}
+
+# ---- parsing functions ----
+
+async fn parseProgram() {
+  skipNL()
+  let allow = parseAllowBlock()
+  skipNL()
+
+  let body = []
+  let tests = []
+
+  until isAtEnd() {
+    skipNL()
+    if isAtEnd() {
+      return ["Program", allow, body, tests]
+    }
+    if check("KW", "test") {
+      set tests = push(tests, parseTestBlock())
+    } else {
+      set body = push(body, parseStatement())
+    }
+    skipNL()
+  }
+
+  return ["Program", allow, body, tests]
+}
+
+async fn parseAllowBlock() {
+  expect("KW", "allow", "expected 'allow'")
+  skipNL()
+
+  let perms = []
+  until !check("ID", null) {
+    let ns = advance()
+    expect("OP", ".", "expected '.' in permission")
+    let name = advance()
+    set perms = push(perms, ns[1] + "." + name[1])
+    skipNL()
+  }
+
+  return ["Allow", perms]
+}
+
+async fn parseStatement() {
+  if check("KW", "let") {
+    return parseLetDecl()
+  }
+  if check("KW", "set") {
+    return parseSetStmt()
+  }
+  if check("KW", "async") {
+    return parseFnDecl()
+  }
+  if check("KW", "return") {
+    return parseReturnStmt()
+  }
+  if check("KW", "if") {
+    return parseIfStmt()
+  }
+  if check("KW", "unless") {
+    return parseUnlessStmt()
+  }
+  if check("KW", "until") {
+    return parseUntilStmt()
+  }
+  if check("KW", "for") {
+    return parseForStmt()
+  }
+  if check("KW", "when") {
+    return parseWhenExpr()
+  }
+
+  let expr = parseExpression()
+
+  # check for postfix if
+  if check("KW", "if") {
+    advance()
+    let cond = parseExpression()
+    return ["PostfixIf", expr, cond]
+  }
+
+  return ["ExprStmt", expr]
+}
+
+async fn parseLetDecl() {
+  advance()
+
+  # destructuring: let [a, b] = expr
+  if check("OP", "[") {
+    advance()
+    let names = []
+    set names = push(names, advance()[1])
+    until !check("OP", ",") {
+      advance()
+      set names = push(names, advance()[1])
+    }
+    expect("OP", "]", "expected ']'")
+    expect("OP", "=", "expected '='")
+    skipNL()
+    let value = parseExpression()
+    return ["LetDestructure", names, value]
+  }
+
+  let name = advance()
+  # skip optional type annotation
+  if check("OP", ":") {
+    advance()
+    advance()
+  }
+  expect("OP", "=", "expected '='")
+  skipNL()
+  let value = parseExpression()
+  return ["LetDecl", name[1], value]
+}
+
+async fn parseSetStmt() {
+  advance()
+  let name = advance()
+  expect("OP", "=", "expected '='")
+  skipNL()
+  let value = parseExpression()
+  return ["SetStmt", name[1], value]
+}
+
+async fn parseFnDecl() {
+  advance()
+  expect("KW", "fn", "expected 'fn'")
+  let name = advance()
+  expect("OP", "(", "expected '('")
+
+  let params = []
+  unless check("OP", ")") {
+    set params = push(params, advance()[1])
+    until !check("OP", ",") {
+      advance()
+      set params = push(params, advance()[1])
+    }
+  }
+  expect("OP", ")", "expected ')'")
+
+  let body = parseBlock()
+  return ["FnDecl", name[1], params, body]
+}
+
+async fn parseReturnStmt() {
+  advance()
+  if check("NL", null) || isAtEnd() || check("OP", "}") {
+    return ["ReturnStmt", null]
+  }
+  let value = parseExpression()
+
+  if check("KW", "if") {
+    advance()
+    let cond = parseExpression()
+    return ["PostfixIf", ["ReturnStmt", value], cond]
+  }
+
+  return ["ReturnStmt", value]
+}
+
+async fn parseIfStmt() {
+  advance()
+  let cond = parseExpression()
+  let body = parseBlock()
+
+  skipNL()
+  if match("KW", "else") {
+    if check("KW", "if") {
+      let elseBody = [parseIfStmt()]
+      return ["IfStmt", cond, body, elseBody]
+    }
+    let elseBody = parseBlock()
+    return ["IfStmt", cond, body, elseBody]
+  }
+
+  return ["IfStmt", cond, body, null]
+}
+
+async fn parseUnlessStmt() {
+  advance()
+  let cond = parseExpression()
+  let body = parseBlock()
+  return ["UnlessStmt", cond, body]
+}
+
+async fn parseUntilStmt() {
+  advance()
+  let cond = parseExpression()
+  let body = parseBlock()
+  return ["UntilStmt", cond, body]
+}
+
+async fn parseForStmt() {
+  advance()
+
+  if check("KW", "await") {
+    advance()
+    let varName = advance()
+    expect("KW", "from", "expected 'from'")
+    let source = parseExpression()
+    let body = parseBlock()
+    return ["ForAwaitStmt", varName[1], source, body]
+  }
+
+  let varName = advance()
+  expect("KW", "in", "expected 'in'")
+  let iter = parseExpression()
+  let body = parseBlock()
+  return ["ForStmt", varName[1], iter, body]
+}
+
+async fn parseWhenExpr() {
+  advance()
+  let subject = parseExpression()
+  skipNL()
+  expect("OP", "{", "expected '{'")
+  skipNL()
+
+  let branches = []
+  until check("OP", "}") || isAtEnd() {
+    skipNL()
+    if check("OP", "}") {
+      return ["WhenExpr", subject, branches]
+    }
+    let pattern = advance()
+    expect("OP", "(", "expected '('")
+    let binding = advance()
+    expect("OP", ")", "expected ')'")
+    expect("OP", "=>", "expected '=>'")
+    let branchBody = [parseStatement()]
+    set branches = push(branches, [pattern[1], binding[1], branchBody])
+    skipNL()
+  }
+
+  expect("OP", "}", "expected '}'")
+  return ["WhenExpr", subject, branches]
+}
+
+async fn parseTestBlock() {
+  advance()
+  let desc = advance()
+  skipNL()
+  expect("OP", "{", "expected '{'")
+  skipNL()
+
+  let body = []
+  until check("OP", "}") || isAtEnd() {
+    skipNL()
+    if check("OP", "}") {
+      expect("OP", "}", "expected '}'")
+      return ["TestBlock", desc[1], body]
+    }
+    set body = push(body, parseStatement())
+    skipNL()
+  }
+  expect("OP", "}", "expected '}'")
+  return ["TestBlock", desc[1], body]
+}
+
+# ---- expressions ----
+
+async fn parseExpression() {
+  return parseOr()
+}
+
+async fn parseOr() {
+  let left = parseAnd()
+  until !check("OP", "||") {
+    advance()
+    let right = parseAnd()
+    set left = ["BinaryExpr", "||", left, right]
+  }
+  return left
+}
+
+async fn parseAnd() {
+  let left = parseEquality()
+  until !check("OP", "&&") {
+    advance()
+    let right = parseEquality()
+    set left = ["BinaryExpr", "&&", left, right]
+  }
+  return left
+}
+
+async fn parseEquality() {
+  let left = parseComparison()
+  until !check("OP", "==") && !check("OP", "!=") {
+    let op = advance()
+    let right = parseComparison()
+    set left = ["BinaryExpr", op[1], left, right]
+  }
+  return left
+}
+
+async fn parseComparison() {
+  let left = parseAddition()
+  until !check("OP", ">") && !check("OP", "<") && !check("OP", ">=") && !check("OP", "<=") {
+    let op = advance()
+    let right = parseAddition()
+    set left = ["BinaryExpr", op[1], left, right]
+  }
+  return left
+}
+
+async fn parseAddition() {
+  let left = parseMultiplication()
+  until !check("OP", "+") && !check("OP", "-") {
+    let op = advance()
+    let right = parseMultiplication()
+    set left = ["BinaryExpr", op[1], left, right]
+  }
+  return left
+}
+
+async fn parseMultiplication() {
+  let left = parseUnary()
+  until !check("OP", "*") && !check("OP", "/") && !check("OP", "%") {
+    let op = advance()
+    let right = parseUnary()
+    set left = ["BinaryExpr", op[1], left, right]
+  }
+  return left
+}
+
+async fn parseUnary() {
+  if check("OP", "!") {
+    advance()
+    let operand = parseUnary()
+    return ["UnaryExpr", "!", operand]
+  }
+  if check("OP", "-") {
+    advance()
+    let operand = parseUnary()
+    return ["UnaryExpr", "-", operand]
+  }
+  return parsePostfix()
+}
+
+async fn parsePostfix() {
+  let expr = parsePrimary()
+
+  until !check("OP", "(") && !check("OP", "[") && !check("OP", ".") {
+    if check("OP", "(") {
+      advance()
+      let callArgs = []
+      unless check("OP", ")") {
+        skipNL()
+        set callArgs = push(callArgs, parseExpression())
+        until !check("OP", ",") {
+          advance()
+          skipNL()
+          set callArgs = push(callArgs, parseExpression())
+        }
+        skipNL()
+      }
+      expect("OP", ")", "expected ')'")
+      set expr = ["CallExpr", expr, callArgs]
+    } else {
+      if check("OP", "[") {
+        advance()
+        let idx = parseExpression()
+        expect("OP", "]", "expected ']'")
+        set expr = ["IndexExpr", expr, idx]
+      } else {
+        if check("OP", ".") {
+          advance()
+          let prop = advance()
+          set expr = ["MemberExpr", expr, prop[1]]
+        }
+      }
+    }
+  }
+
+  # handle or fail / or return
+  skipNL()
+  if check("KW", "or") {
+    advance()
+    if check("KW", "fail") {
+      advance()
+      let msg = parseExpression()
+      return ["OrFail", expr, msg]
+    }
+    if check("KW", "return") {
+      advance()
+      let def = parseExpression()
+      return ["OrReturn", expr, def]
+    }
+  }
+
+  return expr
+}
+
+async fn parsePrimary() {
+  # number
+  if check("NUM", null) {
+    let tok = advance()
+    return ["NumberLit", parseFloat(tok[1])]
+  }
+
+  # string
+  if check("STR", null) {
+    let tok = advance()
+    # check for interpolation
+    if contains(tok[1], "{") {
+      return ["InterpolatedStr", tok[1]]
+    }
+    return ["StringLit", tok[1]]
+  }
+
+  # true/false/null
+  if check("KW", "true") {
+    advance()
+    return ["BoolLit", true]
+  }
+  if check("KW", "false") {
+    advance()
+    return ["BoolLit", false]
+  }
+  if check("KW", "null") {
+    advance()
+    return ["NullLit"]
+  }
+
+  # Ok(value)
+  if check("KW", "ok") {
+    advance()
+    if check("OP", "(") {
+      advance()
+      let val = parseExpression()
+      expect("OP", ")", "expected ')'")
+      return ["CallExpr", ["Ident", "Ok"], [val]]
+    }
+    return ["Ident", "ok"]
+  }
+
+  # failed(reason)
+  if check("KW", "failed") {
+    advance()
+    if check("OP", "(") {
+      advance()
+      let reason = parseExpression()
+      expect("OP", ")", "expected ')'")
+      return ["CallExpr", ["Ident", "failed"], [reason]]
+    }
+    return ["Ident", "failed"]
+  }
+
+  # print is both keyword and callable
+  if check("KW", "print") {
+    advance()
+    return ["Ident", "print"]
+  }
+
+  # await
+  if check("KW", "await") {
+    advance()
+    if check("KW", "all") {
+      advance()
+      skipNL()
+      expect("OP", "{", "expected '{'")
+      skipNL()
+      let calls = []
+      until check("OP", "}") || isAtEnd() {
+        skipNL()
+        if check("OP", "}") {
+          expect("OP", "}", "expected '}'")
+          return ["AwaitAll", calls]
+        }
+        set calls = push(calls, parseExpression())
+        skipNL()
+      }
+      expect("OP", "}", "expected '}'")
+      return ["AwaitAll", calls]
+    }
+    if check("KW", "ask") {
+      let askExpr = parseAskExpr()
+      return askExpr
+    }
+    let inner = parsePostfix()
+    return inner
+  }
+
+  # ask (standalone in await all blocks)
+  if check("KW", "ask") {
+    return parseAskExpr()
+  }
+
+  # identifier
+  if check("ID", null) {
+    let tok = advance()
+    return ["Ident", tok[1]]
+  }
+
+  # parenthesized expression
+  if check("OP", "(") {
+    advance()
+    let expr = parseExpression()
+    expect("OP", ")", "expected ')'")
+    return expr
+  }
+
+  # array literal
+  if check("OP", "[") {
+    advance()
+    let elements = []
+    skipNL()
+    unless check("OP", "]") {
+      set elements = push(elements, parseExpression())
+      until !check("OP", ",") {
+        advance()
+        skipNL()
+        set elements = push(elements, parseExpression())
+      }
+    }
+    skipNL()
+    expect("OP", "]", "expected ']'")
+    return ["ArrayLit", elements]
+  }
+
+  let tok = peek()
+  return failed("unexpected token: {tok[0]} '{tok[1]}' at line {tok[2]}")
+}
+
+async fn parseAskExpr() {
+  advance()
+  let ns = advance()
+  expect("OP", ".", "expected '.'")
+  let method = advance()
+  let tool = ns[1] + "." + method[1]
+
+  expect("OP", "(", "expected '('")
+  let toolArgs = []
+  unless check("OP", ")") {
+    skipNL()
+    set toolArgs = push(toolArgs, parseExpression())
+    until !check("OP", ",") {
+      advance()
+      skipNL()
+      set toolArgs = push(toolArgs, parseExpression())
+    }
+    skipNL()
+  }
+  expect("OP", ")", "expected ')'")
+
+  return ["ToolCall", tool, toolArgs]
+}
+
+async fn parseBlock() {
+  skipNL()
+  expect("OP", "{", "expected '{'")
+  skipNL()
+
+  let stmts = []
+  until check("OP", "}") || isAtEnd() {
+    skipNL()
+    if check("OP", "}") {
+      expect("OP", "}", "expected '}'")
+      return stmts
+    }
+    set stmts = push(stmts, parseStatement())
+    skipNL()
+  }
+
+  expect("OP", "}", "expected '}'")
+  return stmts
+}
+
+# ============================================================
+# run the parser
+# ============================================================
+
+let ast = parseProgram()
+
+# ============================================================
+# pretty print the AST
+# ============================================================
+
+async fn indent(depth) {
+  let pad = ""
+  let i = 0
+  until i >= depth {
+    set pad = pad + "  "
+    set i = i + 1
+  }
+  return pad
+}
+
+async fn printNode(node, depth) {
+  if typeOf(node) != "array" || len(node) == 0 {
+    print("{indent(depth)}{toString(node)}")
+    return null
+  }
+
+  let kind = node[0]
+
+  if kind == "Program" {
+    print("{indent(depth)}Program")
+    let allow = node[1]
+    let permStr = join(allow[1], ", ")
+    print("{indent(depth + 1)}Allow: {permStr}")
+    let body = node[2]
+    print("{indent(depth + 1)}Body ({len(body)} statements):")
+    for stmt in body {
+      printNode(stmt, depth + 2)
+    }
+    let tests = node[3]
+    if len(tests) > 0 {
+      print("{indent(depth + 1)}Tests ({len(tests)}):")
+      for t in tests {
+        printNode(t, depth + 2)
+      }
+    }
+  } else {
+    if kind == "LetDecl" {
+      print("{indent(depth)}LetDecl '{node[1]}'")
+      printNode(node[2], depth + 1)
+    } else {
+      if kind == "SetStmt" {
+        print("{indent(depth)}SetStmt '{node[1]}'")
+        printNode(node[2], depth + 1)
+      } else {
+        if kind == "FnDecl" {
+          let paramStr = join(node[2], ", ")
+          print("{indent(depth)}FnDecl '{node[1]}' ({paramStr})")
+          for stmt in node[3] {
+            printNode(stmt, depth + 1)
+          }
+        } else {
+          if kind == "IfStmt" {
+            print("{indent(depth)}IfStmt")
+            print("{indent(depth + 1)}condition:")
+            printNode(node[1], depth + 2)
+            print("{indent(depth + 1)}then:")
+            for stmt in node[2] {
+              printNode(stmt, depth + 2)
+            }
+          } else {
+            if kind == "ForStmt" {
+              print("{indent(depth)}ForStmt '{node[1]}'")
+            } else {
+              if kind == "ReturnStmt" {
+                print("{indent(depth)}ReturnStmt")
+                if node[1] != null {
+                  printNode(node[1], depth + 1)
+                }
+              } else {
+                if kind == "ExprStmt" {
+                  print("{indent(depth)}ExprStmt")
+                  printNode(node[1], depth + 1)
+                } else {
+                  if kind == "CallExpr" {
+                    print("{indent(depth)}CallExpr")
+                    printNode(node[1], depth + 1)
+                    for arg in node[2] {
+                      printNode(arg, depth + 1)
+                    }
+                  } else {
+                    if kind == "ToolCall" {
+                      print("{indent(depth)}ToolCall '{node[1]}'")
+                    } else {
+                      if kind == "Ident" {
+                        print("{indent(depth)}Ident '{node[1]}'")
+                      } else {
+                        if kind == "NumberLit" {
+                          print("{indent(depth)}Number {node[1]}")
+                        } else {
+                          if kind == "StringLit" {
+                            print("{indent(depth)}String \"{node[1]}\"")
+                          } else {
+                            if kind == "BinaryExpr" {
+                              print("{indent(depth)}BinaryExpr '{node[1]}'")
+                              printNode(node[2], depth + 1)
+                              printNode(node[3], depth + 1)
+                            } else {
+                              if kind == "TestBlock" {
+                                print("{indent(depth)}Test \"{node[1]}\"")
+                              } else {
+                                # generic fallback
+                                print("{indent(depth)}{kind} ...")
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+print("parsed {args[0]} into AST:")
+print("")
+printNode(ast, 0)
+
+test "parses a simple program" {
+  mock fs.read returns Ok("allow\n  fs.read\n\nlet x = 42\nprint(x)")
+  expect await run() to be ok
+}
