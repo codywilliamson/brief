@@ -140,7 +140,7 @@ src/
 ## Testing
 
 ```bash
-pnpm test        # 161 tests across 7 suites
+pnpm test        # 202 tests across 7 suites
 ```
 
 ## Spec
