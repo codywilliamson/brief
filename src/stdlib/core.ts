@@ -203,6 +203,57 @@ export function briefPathExtname(p: BriefValue): string {
   return nodePath.extname(p);
 }
 
+export function briefJsonParse(str: BriefValue): BriefValue {
+  if (typeof str !== "string") throw new Error("jsonParse() expects string");
+  try {
+    const parsed = JSON.parse(str);
+    return jsonToBrief(parsed);
+  } catch {
+    throw new Error("jsonParse() failed to parse input");
+  }
+}
+
+function jsonToBrief(value: unknown): BriefValue {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.map(jsonToBrief);
+  if (typeof value === "object") {
+    const result: BriefValue[] = [];
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result.push(k, jsonToBrief(v));
+    }
+    return result;
+  }
+  return null;
+}
+
+export function briefJsonStringify(value: BriefValue): string {
+  return JSON.stringify(briefToJson(value));
+}
+
+function isKvArray(arr: BriefValue[]): boolean {
+  if (arr.length === 0 || arr.length % 2 !== 0) return false;
+  for (let i = 0; i < arr.length; i += 2) {
+    if (typeof arr[i] !== "string") return false;
+  }
+  return true;
+}
+
+function briefToJson(value: BriefValue): unknown {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    if (isKvArray(value)) {
+      const obj: Record<string, unknown> = {};
+      for (let i = 0; i < value.length; i += 2) {
+        obj[value[i] as string] = briefToJson(value[i + 1]);
+      }
+      return obj;
+    }
+    return value.map(briefToJson);
+  }
+  return null;
+}
+
 function briefEquals(a: BriefValue, b: BriefValue): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -240,4 +291,6 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   pathDirname: (p) => briefPathDirname(p),
   pathBasename: (p) => briefPathBasename(p),
   pathExtname: (p) => briefPathExtname(p),
+  jsonParse: (s) => briefJsonParse(s),
+  jsonStringify: (v) => briefJsonStringify(v),
 };

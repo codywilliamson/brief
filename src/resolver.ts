@@ -37,6 +37,7 @@ const BUILTINS = new Set([
   "toUpper", "toLower", "concat", "push", "range", "typeOf", "keys",
   "flat", "reverse", "sort", "unique", "indexOf",
   "pathJoin", "pathDirname", "pathBasename", "pathExtname",
+  "jsonParse", "jsonStringify",
 ]);
 
 export function resolve(program: Program): ResolveResult {
