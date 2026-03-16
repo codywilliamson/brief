@@ -23,3 +23,34 @@ export async function fsWrite(path: BriefValue, content: BriefValue): Promise<Br
     return { kind: "failed", reason: e.message ?? String(e) };
   }
 }
+
+export async function fsExists(path: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.exists path must be a string" };
+  try {
+    await nodeFs.access(path);
+    return { kind: "ok", value: true };
+  } catch (e: any) {
+    if (e.code === "ENOENT") return { kind: "ok", value: false };
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsMkdir(path: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.mkdir path must be a string" };
+  try {
+    await nodeFs.mkdir(path, { recursive: true });
+    return { kind: "ok", value: null };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsList(path: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.list path must be a string" };
+  try {
+    const entries = await nodeFs.readdir(path);
+    return { kind: "ok", value: entries };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
