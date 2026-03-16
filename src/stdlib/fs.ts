@@ -84,3 +84,44 @@ export async function fsAppend(path: BriefValue, content: BriefValue): Promise<B
     return { kind: "failed", reason: e.message ?? String(e) };
   }
 }
+
+export async function fsCopy(src: BriefValue, dst: BriefValue): Promise<BriefResult> {
+  if (typeof src !== "string") return { kind: "failed", reason: "fs.copy src must be a string" };
+  if (typeof dst !== "string") return { kind: "failed", reason: "fs.copy dst must be a string" };
+  try {
+    await nodeFs.copyFile(src, dst);
+    return { kind: "ok", value: null };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsMove(src: BriefValue, dst: BriefValue): Promise<BriefResult> {
+  if (typeof src !== "string") return { kind: "failed", reason: "fs.move src must be a string" };
+  if (typeof dst !== "string") return { kind: "failed", reason: "fs.move dst must be a string" };
+  try {
+    await nodeFs.rename(src, dst);
+    return { kind: "ok", value: null };
+  } catch (e: any) {
+    if (e.code === "EXDEV") {
+      try {
+        await nodeFs.copyFile(src, dst);
+        await nodeFs.rm(src, { recursive: true, force: true });
+        return { kind: "ok", value: null };
+      } catch (e2: any) {
+        return { kind: "failed", reason: e2.message ?? String(e2) };
+      }
+    }
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsDelete(path: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.delete path must be a string" };
+  try {
+    await nodeFs.rm(path, { recursive: true, force: true });
+    return { kind: "ok", value: null };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}

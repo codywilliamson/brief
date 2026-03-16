@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as nodeFs from "node:fs/promises";
 import * as nodePath from "node:path";
 import * as os from "node:os";
-import { fsExists, fsMkdir, fsList, fsStat, fsAppend } from "../src/stdlib/fs.js";
+import { fsExists, fsMkdir, fsList, fsStat, fsAppend, fsCopy, fsMove, fsDelete } from "../src/stdlib/fs.js";
 
 let tmpDir: string;
 
@@ -170,5 +170,107 @@ describe("fs.append", () => {
   it("fails on non-string content", async () => {
     const result = await fsAppend("file.txt", 42 as any);
     expect(result).toEqual({ kind: "failed", reason: "fs.append content must be a string" });
+  });
+});
+
+describe("fs.copy", () => {
+  it("copies a file", async () => {
+    const src = nodePath.join(tmpDir, "src.txt");
+    const dst = nodePath.join(tmpDir, "dst.txt");
+    await nodeFs.writeFile(src, "content");
+    const result = await fsCopy(src, dst);
+    expect(result).toEqual({ kind: "ok", value: null });
+    expect(await nodeFs.readFile(dst, "utf-8")).toBe("content");
+    expect(await nodeFs.readFile(src, "utf-8")).toBe("content");
+  });
+
+  it("overwrites existing destination", async () => {
+    const src = nodePath.join(tmpDir, "src.txt");
+    const dst = nodePath.join(tmpDir, "dst.txt");
+    await nodeFs.writeFile(src, "new");
+    await nodeFs.writeFile(dst, "old");
+    const result = await fsCopy(src, dst);
+    expect(result).toEqual({ kind: "ok", value: null });
+    expect(await nodeFs.readFile(dst, "utf-8")).toBe("new");
+  });
+
+  it("fails on nonexistent source", async () => {
+    const result = await fsCopy(nodePath.join(tmpDir, "nope"), nodePath.join(tmpDir, "dst"));
+    expect(result.kind).toBe("failed");
+  });
+
+  it("fails on non-string src", async () => {
+    const result = await fsCopy(42 as any, "dst");
+    expect(result).toEqual({ kind: "failed", reason: "fs.copy src must be a string" });
+  });
+
+  it("fails on non-string dst", async () => {
+    const result = await fsCopy("src", 42 as any);
+    expect(result).toEqual({ kind: "failed", reason: "fs.copy dst must be a string" });
+  });
+});
+
+describe("fs.move", () => {
+  it("moves a file", async () => {
+    const src = nodePath.join(tmpDir, "src.txt");
+    const dst = nodePath.join(tmpDir, "dst.txt");
+    await nodeFs.writeFile(src, "content");
+    const result = await fsMove(src, dst);
+    expect(result).toEqual({ kind: "ok", value: null });
+    expect(await nodeFs.readFile(dst, "utf-8")).toBe("content");
+    await expect(nodeFs.access(src)).rejects.toThrow();
+  });
+
+  it("renames a file", async () => {
+    const src = nodePath.join(tmpDir, "old.txt");
+    const dst = nodePath.join(tmpDir, "new.txt");
+    await nodeFs.writeFile(src, "data");
+    const result = await fsMove(src, dst);
+    expect(result).toEqual({ kind: "ok", value: null });
+    expect(await nodeFs.readFile(dst, "utf-8")).toBe("data");
+  });
+
+  it("fails on nonexistent source", async () => {
+    const result = await fsMove(nodePath.join(tmpDir, "nope"), nodePath.join(tmpDir, "dst"));
+    expect(result.kind).toBe("failed");
+  });
+
+  it("fails on non-string src", async () => {
+    const result = await fsMove(42 as any, "dst");
+    expect(result).toEqual({ kind: "failed", reason: "fs.move src must be a string" });
+  });
+
+  it("fails on non-string dst", async () => {
+    const result = await fsMove("src", 42 as any);
+    expect(result).toEqual({ kind: "failed", reason: "fs.move dst must be a string" });
+  });
+});
+
+describe("fs.delete", () => {
+  it("deletes a file", async () => {
+    const file = nodePath.join(tmpDir, "test.txt");
+    await nodeFs.writeFile(file, "hello");
+    const result = await fsDelete(file);
+    expect(result).toEqual({ kind: "ok", value: null });
+    await expect(nodeFs.access(file)).rejects.toThrow();
+  });
+
+  it("deletes a directory recursively", async () => {
+    const dir = nodePath.join(tmpDir, "subdir");
+    await nodeFs.mkdir(dir);
+    await nodeFs.writeFile(nodePath.join(dir, "file.txt"), "data");
+    const result = await fsDelete(dir);
+    expect(result).toEqual({ kind: "ok", value: null });
+    await expect(nodeFs.access(dir)).rejects.toThrow();
+  });
+
+  it("succeeds silently on nonexistent path", async () => {
+    const result = await fsDelete(nodePath.join(tmpDir, "nope"));
+    expect(result).toEqual({ kind: "ok", value: null });
+  });
+
+  it("fails on non-string input", async () => {
+    const result = await fsDelete(42 as any);
+    expect(result).toEqual({ kind: "failed", reason: "fs.delete path must be a string" });
   });
 });
