@@ -477,6 +477,14 @@ keys(array)               returns [0, 1, ..., len-1]
 contains(array, value)    true if array contains value
 ```
 
+### Math
+```
+floor(n)                      rounds down to nearest integer
+ceil(n)                       rounds up to nearest integer
+round(n)                      rounds to nearest integer (.5 rounds up)
+abs(n)                        absolute value
+```
+
 ### Path
 ```
 pathJoin(parts...)            joins path segments

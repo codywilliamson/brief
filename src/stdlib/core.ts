@@ -261,6 +261,26 @@ function briefEquals(a: BriefValue, b: BriefValue): boolean {
   return a === b;
 }
 
+export function briefFloor(n: BriefValue): number {
+  if (typeof n !== "number") throw new Error("floor() expects number");
+  return Math.floor(n);
+}
+
+export function briefCeil(n: BriefValue): number {
+  if (typeof n !== "number") throw new Error("ceil() expects number");
+  return Math.ceil(n);
+}
+
+export function briefRound(n: BriefValue): number {
+  if (typeof n !== "number") throw new Error("round() expects number");
+  return Math.round(n);
+}
+
+export function briefAbs(n: BriefValue): number {
+  if (typeof n !== "number") throw new Error("abs() expects number");
+  return Math.abs(n);
+}
+
 export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefValue> = {
   len: (v) => briefLen(v),
   trim: (v) => briefTrim(v),
@@ -293,4 +313,8 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   pathExtname: (p) => briefPathExtname(p),
   jsonParse: (s) => briefJsonParse(s),
   jsonStringify: (v) => briefJsonStringify(v),
+  floor: (n) => briefFloor(n),
+  ceil: (n) => briefCeil(n),
+  round: (n) => briefRound(n),
+  abs: (n) => briefAbs(n),
 };

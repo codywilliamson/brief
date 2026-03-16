@@ -6,6 +6,10 @@ import {
   briefPathExtname,
   briefJsonParse,
   briefJsonStringify,
+  briefFloor,
+  briefCeil,
+  briefRound,
+  briefAbs,
 } from "../src/stdlib/core.js";
 
 describe("path functions", () => {
@@ -110,6 +114,65 @@ describe("json functions", () => {
       expect(briefJsonStringify("hello")).toBe('"hello"');
       expect(briefJsonStringify(true)).toBe("true");
       expect(briefJsonStringify(null)).toBe("null");
+    });
+  });
+});
+
+describe("math functions", () => {
+  describe("floor", () => {
+    it("floors positive float", () => {
+      expect(briefFloor(3.7)).toBe(3);
+    });
+    it("floors negative float", () => {
+      expect(briefFloor(-2.3)).toBe(-3);
+    });
+    it("passes through integer", () => {
+      expect(briefFloor(5)).toBe(5);
+    });
+    it("throws on non-number", () => {
+      expect(() => briefFloor("3" as any)).toThrow("floor() expects number");
+    });
+  });
+
+  describe("ceil", () => {
+    it("ceils positive float", () => {
+      expect(briefCeil(3.2)).toBe(4);
+    });
+    it("ceils negative float", () => {
+      expect(briefCeil(-2.7)).toBe(-2);
+    });
+    it("passes through integer", () => {
+      expect(briefCeil(5)).toBe(5);
+    });
+    it("throws on non-number", () => {
+      expect(() => briefCeil("3" as any)).toThrow("ceil() expects number");
+    });
+  });
+
+  describe("round", () => {
+    it("rounds down at .4", () => {
+      expect(briefRound(3.4)).toBe(3);
+    });
+    it("rounds up at .5", () => {
+      expect(briefRound(3.5)).toBe(4);
+    });
+    it("throws on non-number", () => {
+      expect(() => briefRound("3" as any)).toThrow("round() expects number");
+    });
+  });
+
+  describe("abs", () => {
+    it("passes through positive", () => {
+      expect(briefAbs(5)).toBe(5);
+    });
+    it("converts negative to positive", () => {
+      expect(briefAbs(-7)).toBe(7);
+    });
+    it("handles zero", () => {
+      expect(briefAbs(0)).toBe(0);
+    });
+    it("throws on non-number", () => {
+      expect(() => briefAbs("3" as any)).toThrow("abs() expects number");
     });
   });
 });
