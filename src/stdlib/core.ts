@@ -287,6 +287,64 @@ export function briefAbs(n: BriefValue): number {
   return Math.abs(n);
 }
 
+export function briefDateNow(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+export function briefDateParse(isoString: BriefValue): BriefValue[] {
+  if (typeof isoString !== "string") throw new Error("dateParse() expects string");
+  const d = new Date(isoString + "T00:00:00.000Z");
+  if (isNaN(d.getTime())) throw new Error(`dateParse() invalid date '${isoString}'`);
+
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+
+  // dayOfWeek: ISO convention 1=Mon..7=Sun
+  const jsDay = d.getUTCDay(); // 0=Sun..6=Sat
+  const dayOfWeek = jsDay === 0 ? 7 : jsDay;
+
+  // dayOfYear: diff from Jan 1 of same year
+  const jan1 = new Date(Date.UTC(year, 0, 1));
+  const dayOfYear = Math.floor((d.getTime() - jan1.getTime()) / 86400000) + 1;
+
+  // isoWeek: find Thursday of the week, determine week number
+  const thu = new Date(d.getTime());
+  thu.setUTCDate(thu.getUTCDate() + (4 - (thu.getUTCDay() || 7)));
+  const isoYear = thu.getUTCFullYear();
+  const jan1Iso = new Date(Date.UTC(isoYear, 0, 1));
+  const isoWeek = Math.floor((thu.getTime() - jan1Iso.getTime()) / 86400000 / 7) + 1;
+
+  const timestamp = d.getTime();
+
+  return [
+    "year", year,
+    "month", month,
+    "day", day,
+    "dayOfWeek", dayOfWeek,
+    "dayOfYear", dayOfYear,
+    "isoWeek", isoWeek,
+    "timestamp", timestamp,
+  ];
+}
+
+export function briefDateDiff(dateA: BriefValue, dateB: BriefValue, unit: BriefValue): number {
+  if (typeof dateA !== "string" || typeof dateB !== "string") throw new Error("dateDiff() expects string arguments");
+  if (typeof unit !== "string") throw new Error("dateDiff() unit must be a string");
+  if (unit !== "days" && unit !== "weeks") throw new Error(`dateDiff() unit must be "days" or "weeks", got "${unit}"`);
+
+  const a = new Date(dateA + "T00:00:00.000Z");
+  const b = new Date(dateB + "T00:00:00.000Z");
+  if (isNaN(a.getTime())) throw new Error(`dateDiff() invalid date '${dateA}'`);
+  if (isNaN(b.getTime())) throw new Error(`dateDiff() invalid date '${dateB}'`);
+
+  const diffMs = Math.abs(a.getTime() - b.getTime());
+  const diffDays = Math.round(diffMs / 86400000);
+
+  if (unit === "weeks") return Math.floor(diffDays / 7);
+  return diffDays;
+}
+
 export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefValue> = {
   len: (v) => briefLen(v),
   trim: (v) => briefTrim(v),
@@ -323,4 +381,7 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   ceil: (n) => briefCeil(n),
   round: (n) => briefRound(n),
   abs: (n) => briefAbs(n),
+  dateNow: () => briefDateNow(),
+  dateParse: (s) => briefDateParse(s),
+  dateDiff: (a, b, u) => briefDateDiff(a, b, u),
 };

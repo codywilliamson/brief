@@ -511,6 +511,19 @@ round(n)                      rounds to nearest integer (.5 rounds up)
 abs(n)                        absolute value
 ```
 
+### Date
+```
+dateNow()                     returns today's date as "YYYY-MM-DD" string
+dateParse(isoString)          parses ISO date string to flat kv array:
+                                ["year", n, "month", n, "day", n, "dayOfWeek", n,
+                                 "dayOfYear", n, "isoWeek", n, "timestamp", n]
+                              dayOfWeek: 1=Monday through 7=Sunday (ISO)
+                              isoWeek: ISO 8601 week number
+                              timestamp: Unix ms
+dateDiff(dateA, dateB, unit)  absolute difference between two ISO date strings
+                              unit: "days" or "weeks"
+```
+
 ### Path
 ```
 pathJoin(parts...)            joins path segments

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   briefPathJoin,
   briefPathDirname,
@@ -11,6 +11,9 @@ import {
   briefRound,
   briefAbs,
   briefIndexOf,
+  briefDateNow,
+  briefDateParse,
+  briefDateDiff,
 } from "../src/stdlib/core.js";
 
 describe("path functions", () => {
@@ -189,6 +192,115 @@ describe("math functions", () => {
     });
     it("throws on non-number", () => {
       expect(() => briefAbs("3" as any)).toThrow("abs() expects number");
+    });
+  });
+});
+
+describe("date functions", () => {
+  describe("dateNow", () => {
+    it("returns a string matching YYYY-MM-DD pattern", () => {
+      const result = briefDateNow();
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("returns today's date", () => {
+      const expected = new Date().toISOString().split("T")[0];
+      expect(briefDateNow()).toBe(expected);
+    });
+  });
+
+  describe("dateParse", () => {
+    it("parses a valid date", () => {
+      const result = briefDateParse("2026-03-16");
+      // result is a flat kv array
+      expect(result).toContain("year");
+      expect(result).toContain(2026);
+      expect(result).toContain("month");
+      expect(result).toContain(3);
+      expect(result).toContain("day");
+      expect(result).toContain(16);
+    });
+
+    it("returns correct dayOfWeek (Monday=1)", () => {
+      // 2026-03-16 is a Monday
+      const result = briefDateParse("2026-03-16") as any[];
+      const dowIdx = result.indexOf("dayOfWeek");
+      expect(result[dowIdx + 1]).toBe(1);
+
+      // 2026-03-22 is a Sunday
+      const result2 = briefDateParse("2026-03-22") as any[];
+      const dowIdx2 = result2.indexOf("dayOfWeek");
+      expect(result2[dowIdx2 + 1]).toBe(7);
+    });
+
+    it("returns correct isoWeek", () => {
+      // 2026-03-16 is ISO week 12
+      const result = briefDateParse("2026-03-16") as any[];
+      const weekIdx = result.indexOf("isoWeek");
+      expect(result[weekIdx + 1]).toBe(12);
+
+      // 2026-01-01 is ISO week 1 (Thursday is Jan 1)
+      const result2 = briefDateParse("2026-01-01") as any[];
+      const weekIdx2 = result2.indexOf("isoWeek");
+      expect(result2[weekIdx2 + 1]).toBe(1);
+    });
+
+    it("returns correct dayOfYear", () => {
+      // 2026-03-16 is day 75 (31 + 28 + 16)
+      const result = briefDateParse("2026-03-16") as any[];
+      const doyIdx = result.indexOf("dayOfYear");
+      expect(result[doyIdx + 1]).toBe(75);
+
+      // 2026-01-01 is day 1
+      const result2 = briefDateParse("2026-01-01") as any[];
+      const doyIdx2 = result2.indexOf("dayOfYear");
+      expect(result2[doyIdx2 + 1]).toBe(1);
+    });
+
+    it("returns a timestamp", () => {
+      const result = briefDateParse("2026-03-16") as any[];
+      const tsIdx = result.indexOf("timestamp");
+      expect(typeof result[tsIdx + 1]).toBe("number");
+      // timestamp should correspond to 2026-03-16T00:00:00.000Z
+      expect(result[tsIdx + 1]).toBe(new Date("2026-03-16T00:00:00.000Z").getTime());
+    });
+
+    it("throws on invalid input", () => {
+      expect(() => briefDateParse("not-a-date")).toThrow();
+      expect(() => briefDateParse("2026-13-01")).toThrow();
+    });
+
+    it("throws on non-string", () => {
+      expect(() => briefDateParse(42 as any)).toThrow("dateParse() expects string");
+    });
+  });
+
+  describe("dateDiff", () => {
+    it("returns days between two dates", () => {
+      expect(briefDateDiff("2026-03-16", "2026-03-10", "days")).toBe(6);
+    });
+
+    it("returns weeks between two dates", () => {
+      expect(briefDateDiff("2026-03-16", "2026-01-05", "weeks")).toBe(10);
+    });
+
+    it("returns absolute value (order doesn't matter)", () => {
+      expect(briefDateDiff("2026-03-10", "2026-03-16", "days")).toBe(6);
+      expect(briefDateDiff("2026-03-16", "2026-03-10", "days")).toBe(6);
+    });
+
+    it("same date returns 0", () => {
+      expect(briefDateDiff("2026-03-16", "2026-03-16", "days")).toBe(0);
+      expect(briefDateDiff("2026-03-16", "2026-03-16", "weeks")).toBe(0);
+    });
+
+    it("throws on invalid unit", () => {
+      expect(() => briefDateDiff("2026-03-16", "2026-03-10", "months" as any)).toThrow("dateDiff() unit must be");
+    });
+
+    it("throws on non-string inputs", () => {
+      expect(() => briefDateDiff(42 as any, "2026-03-10", "days")).toThrow("dateDiff() expects string");
+      expect(() => briefDateDiff("2026-03-16", 42 as any, "days")).toThrow("dateDiff() expects string");
     });
   });
 });

@@ -39,6 +39,7 @@ const BUILTINS = new Set([
   "pathJoin", "pathDirname", "pathBasename", "pathExtname",
   "jsonParse", "jsonStringify",
   "floor", "ceil", "round", "abs",
+  "dateNow", "dateParse", "dateDiff",
 ]);
 
 export function resolve(program: Program): ResolveResult {
