@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as readline from "node:readline";
 import { runBrief, createToolRegistry } from "./runtime.js";
 import { runTests } from "./test-runner.js";
-import { fsRead, fsWrite, fsExists, fsMkdir, fsList } from "./stdlib/fs.js";
+import { fsRead, fsWrite, fsExists, fsMkdir, fsList, fsStat, fsAppend } from "./stdlib/fs.js";
 import { httpFetch, httpPost } from "./stdlib/http.js";
 import { aiComplete, aiStream, aiConverse, aiToolUse } from "./stdlib/ai.js";
 import { BriefRuntimeError, BriefPermissionError } from "./result.js";
@@ -23,6 +23,8 @@ function createDefaultRegistry() {
   reg.register("fs.exists", fsExists);
   reg.register("fs.mkdir", fsMkdir);
   reg.register("fs.list", fsList);
+  reg.register("fs.stat", fsStat);
+  reg.register("fs.append", fsAppend);
   reg.register("http.fetch", httpFetch);
   reg.register("http.post", httpPost);
   reg.register("ai.complete", aiComplete);

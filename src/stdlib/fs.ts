@@ -54,3 +54,33 @@ export async function fsList(path: BriefValue): Promise<BriefResult> {
     return { kind: "failed", reason: e.message ?? String(e) };
   }
 }
+
+export async function fsStat(path: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.stat path must be a string" };
+  try {
+    const stat = await nodeFs.stat(path);
+    return {
+      kind: "ok",
+      value: [
+        "size", stat.size,
+        "isFile", stat.isFile(),
+        "isDir", stat.isDirectory(),
+        "modified", stat.mtime.toISOString(),
+        "created", stat.birthtime.toISOString(),
+      ],
+    };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsAppend(path: BriefValue, content: BriefValue): Promise<BriefResult> {
+  if (typeof path !== "string") return { kind: "failed", reason: "fs.append path must be a string" };
+  if (typeof content !== "string") return { kind: "failed", reason: "fs.append content must be a string" };
+  try {
+    await nodeFs.appendFile(path, content, "utf-8");
+    return { kind: "ok", value: null };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}

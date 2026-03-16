@@ -24,7 +24,7 @@ export interface ResolveResult {
 }
 
 const VALID_PERMISSIONS = new Set([
-  "fs.read", "fs.write", "fs.exists", "fs.mkdir", "fs.list",
+  "fs.read", "fs.write", "fs.exists", "fs.mkdir", "fs.list", "fs.stat", "fs.append",
   "http.fetch", "http.post",
   "ai.complete", "ai.stream", "ai.converse", "ai.toolUse", "ai.loop",
 ]);
