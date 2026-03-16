@@ -14,6 +14,12 @@ class ReturnSignal {
   constructor(public value: BriefValue) {}
 }
 
+// sentinel for break statements
+class BreakSignal {}
+
+// sentinel for continue statements
+class ContinueSignal {}
+
 // sentinel for or-return unwrap
 class OrReturnSignal {
   constructor(public value: BriefValue) {}
@@ -160,6 +166,12 @@ export class Interpreter {
         throw new ReturnSignal(value);
       }
 
+      case "BreakStmt":
+        throw new BreakSignal();
+
+      case "ContinueStmt":
+        throw new ContinueSignal();
+
       case "IfStmt": {
         const cond = await this.evaluate(node.condition, env);
         if (isTruthy(cond)) {
@@ -185,7 +197,13 @@ export class Interpreter {
         const blockEnv = new Environment(env);
         let iterations = 0;
         while (!isTruthy(await this.evaluate(node.condition, blockEnv))) {
-          await this.executeBlock(node.body, blockEnv);
+          try {
+            await this.executeBlock(node.body, blockEnv);
+          } catch (e) {
+            if (e instanceof BreakSignal) return null;
+            if (e instanceof ContinueSignal) { iterations++; if (iterations > 10000) throw new BriefRuntimeError("until loop exceeded max iterations (10000)", node.line); continue; }
+            throw e;
+          }
           iterations++;
           if (iterations > 10000) {
             throw new BriefRuntimeError("until loop exceeded max iterations (10000)", node.line);
@@ -202,7 +220,13 @@ export class Interpreter {
         for (const item of iterable) {
           const blockEnv = new Environment(env);
           blockEnv.set(node.variable, item);
-          await this.executeBlock(node.body, blockEnv);
+          try {
+            await this.executeBlock(node.body, blockEnv);
+          } catch (e) {
+            if (e instanceof BreakSignal) return null;
+            if (e instanceof ContinueSignal) continue;
+            throw e;
+          }
         }
         return null;
       }
@@ -214,7 +238,13 @@ export class Interpreter {
           for await (const chunk of stream) {
             const blockEnv = new Environment(env);
             blockEnv.set(node.variable, chunk);
-            await this.executeBlock(node.body, blockEnv);
+            try {
+              await this.executeBlock(node.body, blockEnv);
+            } catch (e) {
+              if (e instanceof BreakSignal) return null;
+              if (e instanceof ContinueSignal) continue;
+              throw e;
+            }
           }
         } else {
           throw new BriefRuntimeError("for await requires a stream", node.line);
@@ -390,6 +420,8 @@ export class Interpreter {
       case "LetDecl":
       case "LetDestructure":
       case "ReturnStmt":
+      case "BreakStmt":
+      case "ContinueStmt":
       case "IfStmt":
       case "UnlessStmt":
       case "UntilStmt":

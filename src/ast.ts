@@ -36,6 +36,8 @@ export type Node =
   | TestBlock
   | MockStmt
   | ExpectStmt
+  | BreakStmt
+  | ContinueStmt
   | ExprStmt
   | BlockStmt;
 
@@ -284,6 +286,16 @@ export interface ExpectStmt {
   subject: Node;
   matcher: "be" | "beOk" | "beFailed";
   expected: Node | null;
+  line: number;
+}
+
+export interface BreakStmt {
+  kind: "BreakStmt";
+  line: number;
+}
+
+export interface ContinueStmt {
+  kind: "ContinueStmt";
   line: number;
 }
 

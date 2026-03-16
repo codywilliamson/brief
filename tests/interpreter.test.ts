@@ -398,6 +398,80 @@ until count == 3 {
     });
   });
 
+  describe("break and continue", () => {
+    it("break exits for loop early", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+for item in [1, 2, 3, 4, 5] {
+  if item == 3 {
+    break
+  }
+  print(item)
+}`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([1, 2]);
+    });
+
+    it("break exits until loop early", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+let i = 0
+until i == 10 {
+  set i = i + 1
+  if i == 3 {
+    break
+  }
+  print(i)
+}`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([1, 2]);
+    });
+
+    it("continue skips to next iteration in for loop", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+for item in [1, 2, 3, 4, 5] {
+  if item == 3 {
+    continue
+  }
+  print(item)
+}`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([1, 2, 4, 5]);
+    });
+
+    it("continue skips to next iteration in until loop", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+let i = 0
+until i == 5 {
+  set i = i + 1
+  if i == 3 {
+    continue
+  }
+  print(i)
+}`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([1, 2, 4, 5]);
+    });
+
+    it("break inside nested loop only breaks inner loop", async () => {
+      const prints: BriefValue[] = [];
+      await run(`allow
+  fs.read
+for outer in [1, 2, 3] {
+  for inner in [10, 20, 30] {
+    if inner == 20 {
+      break
+    }
+    print(inner)
+  }
+  print(outer)
+}`, { printFn: (...a) => prints.push(...a) });
+      expect(prints).toEqual([10, 1, 10, 2, 10, 3]);
+    });
+  });
+
   describe("set statement", () => {
     it("mutates a variable", async () => {
       const prints: BriefValue[] = [];

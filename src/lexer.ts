@@ -40,6 +40,8 @@ export enum TokenType {
   Returns,
   Print,
   Set,
+  Break,
+  Continue,
 
   // operators
   Plus,
@@ -114,6 +116,8 @@ const KEYWORDS: Record<string, TokenType> = {
   returns: TokenType.Returns,
   print: TokenType.Print,
   set: TokenType.Set,
+  break: TokenType.Break,
+  continue: TokenType.Continue,
   true: TokenType.True,
   false: TokenType.False,
   null: TokenType.Null,

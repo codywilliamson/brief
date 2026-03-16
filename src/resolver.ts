@@ -236,6 +236,9 @@ function resolveNode(
       for (const el of node.elements) resolveNode(el, scope, permissions, errors);
       break;
     }
+    case "BreakStmt":
+    case "ContinueStmt":
+      break;
     // literals and mocks/expects don't need resolution
     case "NumberLit":
     case "StringLit":

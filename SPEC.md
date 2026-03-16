@@ -417,6 +417,30 @@ for item in list {
 }
 ```
 
+### break
+Exits the current loop immediately.
+```
+for item in items {
+  if item == "stop" {
+    break
+  }
+  print(item)
+}
+```
+
+### continue
+Skips to the next iteration of the current loop.
+```
+for item in items {
+  if item == "skip" {
+    continue
+  }
+  print(item)
+}
+```
+
+`break` and `continue` work in `for`, `until`, and `for await` loops. In nested loops, they affect only the innermost loop.
+
 ---
 
 ## Operators

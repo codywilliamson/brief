@@ -82,6 +82,8 @@ export class Parser {
     if (this.check(TokenType.For)) return this.parseForStmt();
     if (this.check(TokenType.With)) return this.parseWithCtxBlock();
     if (this.check(TokenType.When)) return this.parseWhenExpr();
+    if (this.check(TokenType.Break)) { const tok = this.advance(); return { kind: "BreakStmt", line: tok.line } as AST.BreakStmt; }
+    if (this.check(TokenType.Continue)) { const tok = this.advance(); return { kind: "ContinueStmt", line: tok.line } as AST.ContinueStmt; }
 
     const expr = this.parseExpression();
 
