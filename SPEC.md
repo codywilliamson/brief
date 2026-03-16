@@ -94,6 +94,15 @@ ai.stream
 ai.converse
 ai.toolUse
 ai.loop
+fs.list
+fs.exists
+fs.stat
+fs.mkdir
+fs.move
+fs.copy
+fs.delete
+fs.append
+fs.glob
 ```
 
 ---
@@ -186,6 +195,15 @@ ai.stream(prompt, config?)             -> Stream<string>
 ai.converse(messages, config?)         -> Result<string>
 ai.toolUse(prompt, tools, config?)     -> Result<array>
 ai.loop(prompt, tools, handler, config?) -> Result<string>
+fs.list(path)                          -> Result<string[]>
+fs.exists(path)                        -> Result<boolean>
+fs.stat(path)                          -> Result<array>
+fs.mkdir(path)                         -> Result<null>
+fs.move(src, dst)                      -> Result<null>
+fs.copy(src, dst)                      -> Result<null>
+fs.delete(path)                        -> Result<null>
+fs.append(path, content)              -> Result<null>
+fs.glob(pattern)                       -> Result<string[]>
 ```
 
 ### AI config
@@ -457,6 +475,20 @@ concat(arr1, arr2, ...)   returns new merged array
 range(start, end)         returns [start, start+1, ..., end-1]
 keys(array)               returns [0, 1, ..., len-1]
 contains(array, value)    true if array contains value
+```
+
+### Path
+```
+pathJoin(parts...)            joins path segments
+pathDirname(path)             directory name of path
+pathBasename(path)            file name from path
+pathExtname(path)             file extension (e.g. ".md")
+```
+
+### JSON
+```
+jsonParse(str)                parse JSON to Brief values (objects become flat kv arrays)
+jsonStringify(value)          convert Brief values to JSON string (kv arrays become objects)
 ```
 
 ### Array/string indexing
