@@ -36,6 +36,7 @@ const BUILTINS = new Set([
   "contains", "startsWith", "endsWith", "replace",
   "toUpper", "toLower", "concat", "push", "range", "typeOf", "keys",
   "flat", "reverse", "sort", "unique", "indexOf",
+  "pathJoin", "pathDirname", "pathBasename", "pathExtname",
 ]);
 
 export function resolve(program: Program): ResolveResult {

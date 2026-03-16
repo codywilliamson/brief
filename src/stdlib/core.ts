@@ -1,4 +1,6 @@
-// brief core stdlib - print, len, trim, split, join, slice, parseInt, parseFloat, toString
+// brief core stdlib - print, len, trim, split, join, slice, parseInt, parseFloat, toString, path utils
+
+import * as nodePath from "node:path";
 
 export type BriefValue = string | number | boolean | null | BriefValue[] | BriefResult;
 export type BriefResult = { kind: "ok"; value: BriefValue } | { kind: "failed"; reason: string };
@@ -179,6 +181,28 @@ export function briefIndexOf(arr: BriefValue, value: BriefValue): number {
   return -1;
 }
 
+export function briefPathJoin(...args: BriefValue[]): string {
+  for (const a of args) {
+    if (typeof a !== "string") throw new Error("pathJoin() expects strings");
+  }
+  return nodePath.join(...(args as string[]));
+}
+
+export function briefPathDirname(p: BriefValue): string {
+  if (typeof p !== "string") throw new Error("pathDirname() expects string");
+  return nodePath.dirname(p);
+}
+
+export function briefPathBasename(p: BriefValue): string {
+  if (typeof p !== "string") throw new Error("pathBasename() expects string");
+  return nodePath.basename(p);
+}
+
+export function briefPathExtname(p: BriefValue): string {
+  if (typeof p !== "string") throw new Error("pathExtname() expects string");
+  return nodePath.extname(p);
+}
+
 function briefEquals(a: BriefValue, b: BriefValue): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -212,4 +236,8 @@ export const STDLIB_FUNCTIONS: Record<string, (...args: BriefValue[]) => BriefVa
   sort: (v) => briefSort(v),
   unique: (v) => briefUnique(v),
   indexOf: (a, v) => briefIndexOf(a, v),
+  pathJoin: (...args) => briefPathJoin(...args),
+  pathDirname: (p) => briefPathDirname(p),
+  pathBasename: (p) => briefPathBasename(p),
+  pathExtname: (p) => briefPathExtname(p),
 };
