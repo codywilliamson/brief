@@ -1,4 +1,4 @@
-// brief fs stdlib - fs.read, fs.write
+// brief fs stdlib - filesystem tools
 
 import * as nodeFs from "node:fs/promises";
 import * as nodePath from "node:path";
