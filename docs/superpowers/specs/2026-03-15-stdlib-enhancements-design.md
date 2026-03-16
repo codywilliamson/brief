@@ -215,7 +215,7 @@ let str = jsonStringify(["key", "value"])  # '{"key":"value"}'
 | `src/cli.ts` | register 9 new tools in `createDefaultRegistry()` |
 | `tests/fs.test.ts` | new file — unit tests for all fs tools (real filesystem, temp dirs) |
 | `tests/core.test.ts` | new or extended — unit tests for path/json functions |
-| `examples/fs-tools.br` | e2e test script exercising all new fs tools with Brief `test` blocks |
+| `tests/e2e/fs-tools.br` | e2e test script exercising all new fs tools with Brief `test` blocks |
 | `SPEC.md` | document new tools and functions |
 
 ## testing strategy
@@ -244,9 +244,9 @@ Each fs tool gets its own `describe` block. Tests use real filesystem operations
 - `jsonParse` — object, nested object, array, primitive, invalid JSON (throws)
 - `jsonStringify` — kv array to object, regular array, primitive
 
-### e2e test (`examples/fs-tools.br`)
+### e2e test (`tests/e2e/fs-tools.br`)
 
-A Brief script run with `pnpm brief test examples/fs-tools.br` that:
+A Brief script run with `pnpm brief test tests/e2e/fs-tools.br` that:
 
 1. creates a temp directory with `fs.mkdir`
 2. writes files with `fs.write`
