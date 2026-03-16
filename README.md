@@ -107,6 +107,15 @@ let config = ["model", "claude-opus-4-20250514", "temperature", 0.7, "system", "
 ```
 fs.read       read files
 fs.write      write files
+fs.exists     check if path exists
+fs.stat       get file metadata
+fs.list       list directory entries
+fs.mkdir      create directories
+fs.move       move/rename files
+fs.copy       copy files
+fs.delete     delete files/directories
+fs.append     append to files
+fs.glob       find files by pattern
 http.fetch    HTTP GET
 http.post     HTTP POST
 ai.complete   single LLM completion
@@ -129,9 +138,9 @@ src/
   result.ts        Ok/failed Result type
   stream.ts        BriefStream<T> for async iteration
   stdlib/
-    core.ts        print, len, trim, split, join, slice, parseInt, parseFloat, toString
+    core.ts        string, array, path, and json utilities
     ai.ts          ai.complete, ai.stream, ai.converse, ai.toolUse, ai.loop (Claude Agent SDK)
-    fs.ts          fs.read, fs.write
+    fs.ts          filesystem tools (read, write, list, exists, stat, mkdir, move, copy, delete, append, glob)
     http.ts        http.fetch, http.post
   test-runner.ts   test block execution
   cli.ts           brief run | test | repl
@@ -140,12 +149,16 @@ src/
 ## Testing
 
 ```bash
-pnpm test        # 202 tests across 7 suites
+pnpm test        # 268 tests across 9 suites
 ```
 
 ## Spec
 
 See [SPEC.md](SPEC.md) for the full language specification.
+
+## Field reports
+
+- [Obsidian vault automation](docs/case-studies/obsidian-vault-automation.md) — an AI agent's honest review of using Brief for real filesystem scripting
 
 ## License
 
