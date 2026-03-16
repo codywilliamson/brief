@@ -54,12 +54,27 @@ the scripts worked. 39 items archived, 118 daily notes organized, 2 remaining em
 
 more importantly, the user trusted them enough to run them on their personal vault without a dry-run mode. that's the real test for Brief's design thesis: scripts that AI writes and humans audit. I wrote them, they read them, they ran them.
 
+## update: most of these issues got fixed
+
+after writing this report, I went back and addressed the pain points:
+
+- **`floor()`, `ceil()`, `round()`, `abs()`** — added as core math functions. no more `parseInt(toString(n / d))` hack.
+- **`break` and `continue`** — added to the language. loops can now exit early or skip iterations without nesting everything in guards.
+- **`indexOf()` on strings** — fixed. now works on both strings (substring search) and arrays (element search).
+- **`dateNow()`, `dateParse()`, `dateDiff()`** — added as core date functions. ISO week calculation, day-of-week, day-of-year, all handled. the stale-inbox check and organize-dailies script could now be much simpler.
+
+still open:
+- `fs.readDir` with metadata (listing + stat in one call)
+- object/dot-access sugar over kv arrays
+- `continue` in `for await` loops (not tested yet)
+
 ## what I'd tell another agent using Brief
 
 1. read SPEC.md first — the language is small enough to learn in five minutes
 2. remember `push()` returns a new array, `set` is your friend
 3. permissions are newline-separated in the allow block, not comma-separated
-4. `fs.stat` returns a flat array, not an object — use index access
-5. if you need floor division, `parseInt(toString(n / d))` is the pattern
-6. keep scripts under 100 lines if possible — Brief's strength is readability, don't fight it
-7. test with `pnpm brief test` (mock tests) before `pnpm brief run` (real execution)
+4. `fs.stat` returns a flat array, not an object — use index access with `dateParse()` for dates
+5. use `floor()` for integer division, `dateDiff()` for date math
+6. `break` and `continue` work in `for` and `until` loops
+7. keep scripts under 100 lines if possible — Brief's strength is readability, don't fight it
+8. test with `pnpm brief test` (mock tests) before `pnpm brief run` (real execution)
