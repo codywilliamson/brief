@@ -1,6 +1,7 @@
 // brief fs stdlib - fs.read, fs.write
 
 import * as nodeFs from "node:fs/promises";
+import * as nodePath from "node:path";
 import type { BriefValue, BriefResult } from "./core.js";
 
 export async function fsRead(path: BriefValue): Promise<BriefResult> {
@@ -112,6 +113,20 @@ export async function fsMove(src: BriefValue, dst: BriefValue): Promise<BriefRes
         return { kind: "failed", reason: e2.message ?? String(e2) };
       }
     }
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
+}
+
+export async function fsGlob(pattern: BriefValue): Promise<BriefResult> {
+  if (typeof pattern !== "string") return { kind: "failed", reason: "fs.glob pattern must be a string" };
+  try {
+    const results: string[] = [];
+    for await (const entry of (nodeFs as any).glob(pattern)) {
+      results.push(nodePath.resolve(entry));
+    }
+    results.sort();
+    return { kind: "ok", value: results };
+  } catch (e: any) {
     return { kind: "failed", reason: e.message ?? String(e) };
   }
 }

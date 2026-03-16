@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as nodeFs from "node:fs/promises";
 import * as nodePath from "node:path";
 import * as os from "node:os";
-import { fsExists, fsMkdir, fsList, fsStat, fsAppend, fsCopy, fsMove, fsDelete } from "../src/stdlib/fs.js";
+import { fsExists, fsMkdir, fsList, fsStat, fsAppend, fsCopy, fsMove, fsDelete, fsGlob } from "../src/stdlib/fs.js";
 
 let tmpDir: string;
 
@@ -243,6 +243,50 @@ describe("fs.move", () => {
   it("fails on non-string dst", async () => {
     const result = await fsMove("src", 42 as any);
     expect(result).toEqual({ kind: "failed", reason: "fs.move dst must be a string" });
+  });
+});
+
+describe("fs.glob", () => {
+  it("matches files by pattern", async () => {
+    await nodeFs.writeFile(nodePath.join(tmpDir, "a.md"), "");
+    await nodeFs.writeFile(nodePath.join(tmpDir, "b.md"), "");
+    await nodeFs.writeFile(nodePath.join(tmpDir, "c.txt"), "");
+    const result = await fsGlob(nodePath.join(tmpDir, "*.md"));
+    expect(result.kind).toBe("ok");
+    const files = (result as any).value as string[];
+    expect(files.length).toBe(2);
+    expect(files.every((f: string) => f.endsWith(".md"))).toBe(true);
+  });
+
+  it("matches nested files with **", async () => {
+    const sub = nodePath.join(tmpDir, "sub");
+    await nodeFs.mkdir(sub);
+    await nodeFs.writeFile(nodePath.join(tmpDir, "top.md"), "");
+    await nodeFs.writeFile(nodePath.join(sub, "nested.md"), "");
+    const result = await fsGlob(nodePath.join(tmpDir, "**/*.md"));
+    expect(result.kind).toBe("ok");
+    const files = (result as any).value as string[];
+    expect(files.length).toBe(2);
+  });
+
+  it("returns empty array for no matches", async () => {
+    const result = await fsGlob(nodePath.join(tmpDir, "*.xyz"));
+    expect(result).toEqual({ kind: "ok", value: [] });
+  });
+
+  it("returns sorted absolute paths", async () => {
+    await nodeFs.writeFile(nodePath.join(tmpDir, "b.md"), "");
+    await nodeFs.writeFile(nodePath.join(tmpDir, "a.md"), "");
+    const result = await fsGlob(nodePath.join(tmpDir, "*.md"));
+    expect(result.kind).toBe("ok");
+    const files = (result as any).value as string[];
+    expect(files).toEqual([...files].sort());
+    expect(nodePath.isAbsolute(files[0])).toBe(true);
+  });
+
+  it("fails on non-string input", async () => {
+    const result = await fsGlob(42 as any);
+    expect(result).toEqual({ kind: "failed", reason: "fs.glob pattern must be a string" });
   });
 });
 
