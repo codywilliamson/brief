@@ -1,0 +1,105 @@
+allow
+  fs.read
+  fs.write
+  fs.exists
+  fs.mkdir
+  fs.list
+  fs.stat
+  fs.copy
+  fs.move
+  fs.delete
+  fs.append
+  fs.glob
+
+# e2e test for all fs tools
+# run with: pnpm brief test tests/e2e/fs-tools.br
+
+let base = "/tmp/brief-e2e-test"
+
+# setup
+await ask fs.mkdir(base)
+  or fail "mkdir failed"
+
+# write a file
+await ask fs.write(pathJoin(base, "hello.md"), "hello world")
+  or fail "write failed"
+
+# append to file
+await ask fs.append(pathJoin(base, "hello.md"), "\ngoodbye")
+  or fail "append failed"
+
+# read it back
+let content =
+  await ask fs.read(pathJoin(base, "hello.md"))
+  or fail "read failed"
+
+print(content)
+
+# check existence
+let exists =
+  await ask fs.exists(pathJoin(base, "hello.md"))
+  or fail "exists failed"
+
+print(exists)
+
+# list directory
+let files =
+  await ask fs.list(base)
+  or fail "list failed"
+
+print(files)
+
+# stat file
+let info =
+  await ask fs.stat(pathJoin(base, "hello.md"))
+  or fail "stat failed"
+
+print(at(info, 0))
+print(at(info, 2))
+
+# copy file
+await ask fs.copy(pathJoin(base, "hello.md"), pathJoin(base, "copy.md"))
+  or fail "copy failed"
+
+# move file
+await ask fs.move(pathJoin(base, "copy.md"), pathJoin(base, "moved.md"))
+  or fail "move failed"
+
+# glob
+let mdFiles =
+  await ask fs.glob(pathJoin(base, "*.md"))
+  or fail "glob failed"
+
+print(len(mdFiles))
+
+# cleanup
+await ask fs.delete(base)
+  or fail "delete failed"
+
+print("all fs tools passed")
+
+test "mkdir creates directory" {
+  mock fs.mkdir returns Ok(null)
+  mock fs.write returns Ok(null)
+  mock fs.append returns Ok(null)
+  mock fs.read returns Ok("hello world\ngoodbye")
+  mock fs.exists returns Ok(true)
+  mock fs.list returns Ok(["hello.md"])
+  mock fs.stat returns Ok(["size", 19, "isFile", true, "isDir", false, "modified", "2026-03-15", "created", "2026-03-15"])
+  mock fs.copy returns Ok(null)
+  mock fs.move returns Ok(null)
+  mock fs.glob returns Ok(["/tmp/brief-e2e-test/hello.md", "/tmp/brief-e2e-test/moved.md"])
+  mock fs.delete returns Ok(null)
+  expect await run() to be ok
+}
+
+test "fails gracefully on mkdir error" {
+  mock fs.mkdir returns failed("permission denied")
+  expect await run() to be failed("mkdir failed")
+}
+
+test "fails gracefully on write error" {
+  mock fs.mkdir returns Ok(null)
+  mock fs.write returns failed("disk full")
+  expect await run() to be failed("write failed")
+}
