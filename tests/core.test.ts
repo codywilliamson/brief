@@ -10,6 +10,7 @@ import {
   briefCeil,
   briefRound,
   briefAbs,
+  briefIndexOf,
 } from "../src/stdlib/core.js";
 
 describe("path functions", () => {
@@ -115,6 +116,21 @@ describe("json functions", () => {
       expect(briefJsonStringify(true)).toBe("true");
       expect(briefJsonStringify(null)).toBe("null");
     });
+  });
+});
+
+describe("indexOf (string support)", () => {
+  it("finds substring index", () => {
+    expect(briefIndexOf("hello world", "world")).toBe(6);
+  });
+  it("returns -1 when substring not found", () => {
+    expect(briefIndexOf("hello", "xyz")).toBe(-1);
+  });
+  it("finds first occurrence", () => {
+    expect(briefIndexOf("abcabc", "bc")).toBe(1);
+  });
+  it("still works on arrays", () => {
+    expect(briefIndexOf(["a", "b", "c"], "b")).toBe(1);
   });
 });
 

@@ -465,6 +465,7 @@ endsWith(str, suffix)     true if str ends with suffix
 replace(str, old, new)    replaces all occurrences
 toUpper(str)              uppercase
 toLower(str)              lowercase
+indexOf(str, search)      index of first occurrence of substring (-1 if not found)
 ```
 
 ### Arrays
@@ -475,6 +476,7 @@ concat(arr1, arr2, ...)   returns new merged array
 range(start, end)         returns [start, start+1, ..., end-1]
 keys(array)               returns [0, 1, ..., len-1]
 contains(array, value)    true if array contains value
+indexOf(array, value)     index of first matching element (-1 if not found)
 ```
 
 ### Math

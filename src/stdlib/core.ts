@@ -173,12 +173,18 @@ export function briefUnique(arr: BriefValue): BriefValue[] {
   return result;
 }
 
-export function briefIndexOf(arr: BriefValue, value: BriefValue): number {
-  if (!Array.isArray(arr)) throw new Error(`indexOf() expects array, got ${typeof arr}`);
-  for (let i = 0; i < arr.length; i++) {
-    if (briefEquals(arr[i], value)) return i;
+export function briefIndexOf(haystack: BriefValue, needle: BriefValue): number {
+  if (typeof haystack === "string") {
+    if (typeof needle !== "string") throw new Error(`indexOf() search value must be string when searching a string`);
+    return haystack.indexOf(needle);
   }
-  return -1;
+  if (Array.isArray(haystack)) {
+    for (let i = 0; i < haystack.length; i++) {
+      if (briefEquals(haystack[i], needle)) return i;
+    }
+    return -1;
+  }
+  throw new Error(`indexOf() expects string or array, got ${typeof haystack}`);
 }
 
 export function briefPathJoin(...args: BriefValue[]): string {
