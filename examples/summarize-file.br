@@ -3,41 +3,64 @@ allow
   fs.write
   ai.complete
 
-# summarize any text file and save the summary
-# usage: brief run summarize-file.br <input-file>
+# summarize any text file as markdown bullet points
+# usage: brief run summarize-file.br <input-file> [output.md]
 
-return failed("usage: brief run summarize-file.br <file>") if len(args) == 0
+async fn summarizeFile(path, outputPath) {
+  let content =
+    await ask fs.read(path)
+    or return failed("could not read {path}")
+
+  return failed("file is empty") if trim(content) == ""
+
+  let config = ["system", "you are a concise summarizer. output only markdown bullet points, no preamble."]
+  let summary =
+    await ask ai.complete("summarize the following text in 3-5 markdown bullet points:\n\n{content}", config)
+    or return failed("summarization failed")
+
+  if outputPath != null {
+    await ask fs.write(outputPath, summary)
+      or return failed("could not write {outputPath}")
+  }
+
+  return Ok(summary)
+}
+
+return failed("usage: brief run summarize-file.br <input-file> [output.md]") if len(args) == 0
 
 let path = at(args, 0)
+let outputPath = null
 
-let content =
-  await ask fs.read(path)
-  or fail "could not read {path}"
+if len(args) > 1 {
+  set outputPath = at(args, 1)
+}
 
-return failed("file is empty") if trim(content) == ""
+let result = summarizeFile(path, outputPath)
+when result {
+  ok(summary) => {
+    if outputPath == null {
+      print(summary)
+    } else {
+      print("summary saved to {outputPath}")
+    }
+  }
+  failed(err) => return failed(err)
+}
 
-let wordCount = len(split(content, " "))
-print("read {wordCount} words from {path}")
-
-let config = ["system", "you are a concise summarizer. output only the summary, no preamble."]
-let summary =
-  await ask ai.complete("summarize the following text in 3-5 bullet points:\n\n{content}", config)
-  or fail "summarization failed"
-
-await ask fs.write("summary.txt", summary)
-  or fail "could not write summary"
-
-print("summary saved to summary.txt")
-print(summary)
-
-test "summarizes file content" {
-  mock fs.read returns Ok("Brief is an agentic scripting language designed for AI agents. It has a permission system and built-in testing.")
+test "summarizes file content without writing by default" {
+  mock fs.read("topic.txt") returns Ok("Brief is an agentic scripting language designed for AI agents. It has a permission system and built-in testing.")
   mock ai.complete returns Ok("- Brief is an agentic scripting language\n- Designed for AI agents\n- Includes permission system and testing")
-  mock fs.write returns Ok(null)
-  expect await run() to be ok
+  expect summarizeFile("topic.txt", null) to be ok("- Brief is an agentic scripting language\n- Designed for AI agents\n- Includes permission system and testing")
+}
+
+test "writes markdown summary when output path is provided" {
+  mock fs.read("topic.txt") returns Ok("Brief scripts are readable, permission-gated, and testable.")
+  mock ai.complete returns Ok("- Brief scripts are readable\n- Brief scripts are permission-gated\n- Brief scripts are testable")
+  mock fs.write("summary.md", "- Brief scripts are readable\n- Brief scripts are permission-gated\n- Brief scripts are testable") returns Ok(null)
+  expect summarizeFile("topic.txt", "summary.md") to be ok("- Brief scripts are readable\n- Brief scripts are permission-gated\n- Brief scripts are testable")
 }
 
 test "fails on empty file" {
-  mock fs.read returns Ok("   ")
-  expect await run() to be failed("file is empty")
+  mock fs.read("topic.txt") returns Ok("   ")
+  expect summarizeFile("topic.txt", null) to be failed("file is empty")
 }
