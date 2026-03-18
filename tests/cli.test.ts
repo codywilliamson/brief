@@ -26,6 +26,24 @@ function runCli(args: string[]) {
 }
 
 describe("cli", () => {
+  it("formats missing file errors for brief run without a Node stack", () => {
+    const missingPath = path.join(os.tmpdir(), "brief-cli-missing-run.br");
+    const result = runCli(["run", missingPath]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`error: brief run could not read '${missingPath}':`);
+    expect(result.stderr).not.toContain("at Module.readFileSync");
+  });
+
+  it("formats missing file errors for brief test without a Node stack", () => {
+    const missingPath = path.join(os.tmpdir(), "brief-cli-missing-test.br");
+    const result = runCli(["test", missingPath]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`error: brief test could not read '${missingPath}':`);
+    expect(result.stderr).not.toContain("at Module.readFileSync");
+  });
+
   it("formats runtime errors for brief run", async () => {
     const scriptPath = await writeTempScript("runtime-error.br", `allow
   fs.read

@@ -38,6 +38,16 @@ function createDefaultRegistry() {
   return reg;
 }
 
+function readSourceFile(filePath: string, commandName: "run" | "test"): string {
+  try {
+    return fs.readFileSync(filePath, "utf-8");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`error: brief ${commandName} could not read '${filePath}': ${message}`);
+    process.exit(1);
+  }
+}
+
 async function main() {
   if (!command || command === "--help" || command === "-h") {
     console.log("brief - the brief language interpreter\n");
@@ -54,7 +64,7 @@ async function main() {
       process.exit(1);
     }
     try {
-      const source = fs.readFileSync(file, "utf-8");
+      const source = readSourceFile(file, "run");
       const registry = createDefaultRegistry();
       const result = await runBrief({ source, registry, scriptArgs });
     } catch (e) {
@@ -73,7 +83,7 @@ async function main() {
       process.exit(1);
     }
     try {
-      const source = fs.readFileSync(file, "utf-8");
+      const source = readSourceFile(file, "test");
       const results = await runTests(source);
       let passed = 0;
       let failed = 0;
