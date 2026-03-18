@@ -18,14 +18,59 @@ async function writeTempScript(filename: string, source: string): Promise<string
   return scriptPath;
 }
 
-function runCli(args: string[]) {
+function runCli(args: string[], input?: string) {
   return spawnSync("pnpm", ["exec", "tsx", "src/cli.ts", ...args], {
     cwd: process.cwd(),
     encoding: "utf-8",
+    input,
   });
 }
 
 describe("cli", () => {
+  it("prints helpful usage with examples", () => {
+    const result = runCli(["--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("brief check <file.br|->");
+    expect(result.stdout).toContain("brief run - --flag < script.br");
+    expect(result.stdout).toContain("use '-' to read the script from stdin");
+  });
+
+  it("suggests a nearby command name for typos", () => {
+    const result = runCli(["chcek"]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unknown command 'chcek'.");
+    expect(result.stderr).toContain("did you mean 'check'?");
+  });
+
+  it("validates scripts with brief check", async () => {
+    const scriptPath = await writeTempScript("valid.br", `allow
+  fs.read
+print("hi")
+
+test "works" {
+  expect 1 to be 1
+}`);
+
+    const result = runCli(["check", scriptPath]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`✓ ${scriptPath} is valid`);
+    expect(result.stdout).toContain("1 permission");
+    expect(result.stdout).toContain("1 top-level statement");
+    expect(result.stdout).toContain("1 test block");
+  });
+
+  it("supports stdin input for brief check", () => {
+    const result = runCli(["check", "-"], `allow
+  fs.read
+print("hi")`);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("✓ stdin is valid");
+  });
+
   it("formats missing file errors for brief run without a Node stack", () => {
     const missingPath = path.join(os.tmpdir(), "brief-cli-missing-run.br");
     const result = runCli(["run", missingPath]);
@@ -42,6 +87,17 @@ describe("cli", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`error: brief test could not read '${missingPath}':`);
     expect(result.stderr).not.toContain("at Module.readFileSync");
+  });
+
+  it("prints a friendly message when no tests are present", async () => {
+    const scriptPath = await writeTempScript("no-tests.br", `allow
+  fs.read
+print("hi")`);
+
+    const result = runCli(["test", scriptPath]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`no tests found in ${scriptPath}`);
   });
 
   it("formats runtime errors for brief run", async () => {

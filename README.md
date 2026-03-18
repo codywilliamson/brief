@@ -9,8 +9,16 @@ Brief scripts are single-file `.br` programs that execute top to bottom with a p
 ```bash
 pnpm install
 pnpm brief run script.br
+pnpm brief check script.br
 pnpm brief test script.br
 pnpm brief repl
+```
+
+Use `-` instead of a file path to read the script from stdin:
+
+```bash
+pnpm brief run - --flag < script.br
+pnpm brief check - < script.br
 ```
 
 > Requires `ANTHROPIC_API_KEY` in your environment (automatically set by Claude Code).
@@ -143,13 +151,13 @@ src/
     fs.ts          filesystem tools (read, write, list, exists, stat, mkdir, move, copy, delete, append, glob)
     http.ts        http.fetch, http.post
   test-runner.ts   test block execution
-  cli.ts           brief run | test | repl
+  cli.ts           brief run | test | check | repl
 ```
 
 ## Testing
 
 ```bash
-pnpm test        # 268 tests across 9 suites
+pnpm test        # 324 tests across 12 suites
 ```
 
 ## Spec
