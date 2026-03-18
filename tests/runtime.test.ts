@@ -114,13 +114,10 @@ for await chunk from ask ai.stream("prompt") {
   it("scripts can index into args", async () => {
     const prints: BriefValue[] = [];
     await runBrief({
-      source: 'allow\n  fs.read\nlet first = args\nprint(first)',
+      source: 'allow\n  fs.read\nlet first = args[0]\nprint(first)',
       scriptArgs: ["hello.txt"],
       printFn: (...a) => prints.push(...a),
     });
-    // args is an array, accessing it directly gives the whole array
-    // scripts use args[0] pattern - but we don't have indexing yet
-    // so they use the whole array for now
-    expect(prints[0]).toEqual(["hello.txt"]);
+    expect(prints[0]).toBe("hello.txt");
   });
 });
