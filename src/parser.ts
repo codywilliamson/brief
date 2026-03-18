@@ -85,7 +85,6 @@ export class Parser {
     if (this.check(TokenType.Unless)) return this.parseUnlessStmt();
     if (this.check(TokenType.Until)) return this.parseUntilStmt();
     if (this.check(TokenType.For)) return this.parseForStmt();
-    if (this.check(TokenType.With)) return this.parseWithCtxBlock();
     if (this.check(TokenType.When)) return this.parseWhenExpr();
     if (this.check(TokenType.Break)) { const tok = this.advance(); return { kind: "BreakStmt", line: tok.line } as AST.BreakStmt; }
     if (this.check(TokenType.Continue)) { const tok = this.advance(); return { kind: "ContinueStmt", line: tok.line } as AST.ContinueStmt; }
@@ -229,13 +228,6 @@ export class Parser {
     const iterable = this.parseExpression();
     const body = this.parseBlock();
     return { kind: "ForStmt", variable, iterable, body, line: tok.line } as AST.ForStmt;
-  }
-
-  private parseWithCtxBlock(): AST.WithCtxBlock {
-    const tok = this.advance(); // consume 'with'
-    this.expect(TokenType.Ctx, "expected 'ctx' after 'with'");
-    const body = this.parseBlock();
-    return { kind: "WithCtxBlock", body, line: tok.line };
   }
 
   private parseWhenExpr(): AST.WhenExpr {

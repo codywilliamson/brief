@@ -164,11 +164,6 @@ function resolveNode(
       for (const stmt of node.body) resolveNode(stmt, s, permissions, errors);
       break;
     }
-    case "WithCtxBlock": {
-      const s: Scope = { parent: scope, names: new Set() };
-      for (const stmt of node.body) resolveNode(stmt, s, permissions, errors);
-      break;
-    }
     case "WhenExpr": {
       resolveNode(node.subject, scope, permissions, errors);
       for (const branch of node.branches) {

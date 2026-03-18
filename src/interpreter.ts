@@ -263,11 +263,6 @@ export class Interpreter {
         return null;
       }
 
-      case "WithCtxBlock": {
-        const blockEnv = new Environment(env);
-        return await this.executeBlock(node.body, blockEnv);
-      }
-
       case "WhenExpr": {
         const subject = await this.evaluate(node.subject, env);
         if (!isResult(subject)) {
@@ -438,7 +433,6 @@ export class Interpreter {
       case "UntilStmt":
       case "ForStmt":
       case "ForAwaitStmt":
-      case "WithCtxBlock":
       case "WhenExpr":
       case "PostfixIf":
       case "ExprStmt":

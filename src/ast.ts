@@ -13,7 +13,6 @@ export type Node =
   | UntilStmt
   | ForStmt
   | ForAwaitStmt
-  | WithCtxBlock
   | WhenExpr
   | AwaitAllExpr
   | ToolCallExpr
@@ -125,12 +124,6 @@ export interface ForAwaitStmt {
   kind: "ForAwaitStmt";
   variable: string;
   source: Node;
-  body: Node[];
-  line: number;
-}
-
-export interface WithCtxBlock {
-  kind: "WithCtxBlock";
   body: Node[];
   line: number;
 }

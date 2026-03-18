@@ -126,13 +126,6 @@ describe("parser", () => {
     });
   });
 
-  describe("with ctx", () => {
-    it("parses with ctx block", () => {
-      const body = parseBody("allow\n  fs.read\nwith ctx {\n  print(1)\n}");
-      expect(body[0]).toMatchObject({ kind: "WithCtxBlock" });
-    });
-  });
-
   describe("when expression", () => {
     it("parses when with ok/failed branches", () => {
       const body = parseBody("allow\n  fs.read\nwhen result {\n  ok(v) => print(v)\n  failed(e) => print(e)\n}");

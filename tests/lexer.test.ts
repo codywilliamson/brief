@@ -48,8 +48,8 @@ describe("lexer", () => {
     expect(types("if else unless until for in")).toEqual([
       TokenType.If, TokenType.Else, TokenType.Unless, TokenType.Until, TokenType.For, TokenType.In,
     ]);
-    expect(types("with ctx await all ask or fail")).toEqual([
-      TokenType.With, TokenType.Ctx, TokenType.Await, TokenType.All,
+    expect(types("await all ask or fail")).toEqual([
+      TokenType.Await, TokenType.All,
       TokenType.Ask, TokenType.Or, TokenType.Fail,
     ]);
     expect(types("when ok failed from")).toEqual([

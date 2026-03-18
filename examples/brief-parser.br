@@ -22,7 +22,7 @@ let tline = 1
 let keywords = [
   "allow", "let", "set", "async", "fn", "return",
   "if", "else", "unless", "until", "for", "in",
-  "with", "ctx", "await", "all", "ask", "or", "fail",
+  "await", "all", "ask", "or", "fail",
   "when", "ok", "failed", "from", "test", "mock",
   "expect", "to", "be", "returns", "print",
   "true", "false", "null"

@@ -297,20 +297,6 @@ The handler's return value is sent back to the model as the tool result.
 
 ---
 
-## Context
-
-Context is scoped using `with ctx`. Inside a `with ctx` block, all tool calls receive context implicitly. Context must be passed explicitly across function boundaries.
-
-```
-with ctx {
-  let result =
-    await ask ai.complete("prompt")
-    or fail "failed"
-}
-```
-
----
-
 ## Error handling
 
 ### Result type
