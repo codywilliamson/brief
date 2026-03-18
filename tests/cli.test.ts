@@ -36,6 +36,37 @@ describe("cli", () => {
     expect(result.stdout).toContain("use '-' to read the script from stdin");
   });
 
+  it("prints command-specific help for test", () => {
+    const result = runCli(["test", "--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("brief test <file.br|-> [--json]");
+    expect(result.stdout).toContain("--json   emit machine-readable test results");
+  });
+
+  it("prints command-specific help for check", () => {
+    const result = runCli(["check", "--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("brief check <file.br|-> [--json]");
+    expect(result.stdout).toContain("--json   emit machine-readable validation output");
+  });
+
+  it("prints command-specific help for run", () => {
+    const result = runCli(["run", "--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("brief run <file.br|-> [script args...]");
+  });
+
+  it("prints command-specific help for repl", () => {
+    const result = runCli(["repl", "--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("brief repl");
+    expect(result.stdout).toContain("Start an interactive Brief REPL session.");
+  });
+
   it("suggests a nearby command name for typos", () => {
     const result = runCli(["chcek"]);
 
@@ -62,6 +93,23 @@ test "works" {
     expect(result.stdout).toContain("1 test block");
   });
 
+  it("emits JSON for brief check", async () => {
+    const scriptPath = await writeTempScript("valid-json.br", `allow
+  fs.read
+print("hi")`);
+
+    const result = runCli(["check", scriptPath, "--json"]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      label: scriptPath,
+      permissions: 1,
+      topLevelStatements: 1,
+      testBlocks: 0,
+    });
+  });
+
   it("supports stdin input for brief check", () => {
     const result = runCli(["check", "-"], `allow
   fs.read
@@ -69,6 +117,19 @@ print("hi")`);
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("✓ stdin is valid");
+  });
+
+  it("emits JSON errors for invalid brief check input", async () => {
+    const scriptPath = await writeTempScript("invalid-json.br", `allow
+print("hi")`);
+
+    const result = runCli(["check", scriptPath, "--json"]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      label: scriptPath,
+    });
   });
 
   it("formats missing file errors for brief run without a Node stack", () => {
@@ -98,6 +159,46 @@ print("hi")`);
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`no tests found in ${scriptPath}`);
+  });
+
+  it("emits JSON for brief test", async () => {
+    const scriptPath = await writeTempScript("tests-json.br", `allow
+  fs.read
+
+test "works" {
+  expect 1 to be 1
+}`);
+
+    const result = runCli(["test", "--json", scriptPath]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      label: scriptPath,
+      passed: 1,
+      failed: 0,
+      results: [{ description: "works", passed: true }],
+    });
+  });
+
+  it("emits JSON failures for brief test", async () => {
+    const scriptPath = await writeTempScript("tests-json-fail.br", `allow
+  fs.read
+
+test "fails" {
+  expect 1 to be 2
+}`);
+
+    const result = runCli(["test", scriptPath, "--json"]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      label: scriptPath,
+      passed: 0,
+      failed: 1,
+      results: [{ description: "fails", passed: false }],
+    });
   });
 
   it("formats runtime errors for brief run", async () => {

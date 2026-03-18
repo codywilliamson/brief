@@ -15,10 +15,23 @@ import { resolve } from "./resolver.js";
 
 const cliArgs = process.argv.slice(2);
 const command = cliArgs[0];
-const file = cliArgs[1];
-const scriptArgs = cliArgs.slice(2); // args passed to the .br script
 const COMMANDS = ["run", "test", "check", "repl"] as const;
 type FileCommand = "run" | "test" | "check";
+type OutputMode = "text" | "json";
+type CheckSummary = {
+  ok: boolean;
+  label: string;
+  permissions: number;
+  topLevelStatements: number;
+  testBlocks: number;
+};
+type TestSummary = {
+  ok: boolean;
+  label: string;
+  passed: number;
+  failed: number;
+  results: Array<{ description: string; passed: boolean; error?: string }>;
+};
 
 function createDefaultRegistry() {
   const reg = createToolRegistry();
@@ -42,18 +55,23 @@ function createDefaultRegistry() {
   return reg;
 }
 
+class CliError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliError";
+  }
+}
+
 function readSourceInput(filePath: string, commandName: FileCommand): { source: string; label: string } {
   if (filePath === "-") {
     if (process.stdin.isTTY) {
-      console.error(`error: brief ${commandName} expected script source on stdin when file path is '-'`);
-      process.exit(1);
+      throw new CliError(`error: brief ${commandName} expected script source on stdin when file path is '-'`);
     }
     try {
       return { source: fs.readFileSync(0, "utf-8"), label: "stdin" };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      console.error(`error: brief ${commandName} could not read stdin: ${message}`);
-      process.exit(1);
+      throw new CliError(`error: brief ${commandName} could not read stdin: ${message}`);
     }
   }
 
@@ -61,8 +79,7 @@ function readSourceInput(filePath: string, commandName: FileCommand): { source: 
     return { source: fs.readFileSync(filePath, "utf-8"), label: filePath };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`error: brief ${commandName} could not read '${filePath}': ${message}`);
-    process.exit(1);
+    throw new CliError(`error: brief ${commandName} could not read '${filePath}': ${message}`);
   }
 }
 
@@ -87,6 +104,45 @@ function printHelp(): void {
   console.log("  brief check - < script.br");
   console.log("\nnotes:");
   console.log("  use '-' to read the script from stdin");
+}
+
+function printRunHelp(): void {
+  console.log("usage:");
+  console.log("  brief run <file.br|-> [script args...]");
+  console.log("\nexamples:");
+  console.log("  brief run script.br");
+  console.log("  brief run script.br file.txt --verbose");
+  console.log("  brief run - --flag < script.br");
+}
+
+function printTestHelp(): void {
+  console.log("usage:");
+  console.log("  brief test <file.br|-> [--json]");
+  console.log("\noptions:");
+  console.log("  --json   emit machine-readable test results");
+  console.log("\nexamples:");
+  console.log("  brief test script.br");
+  console.log("  brief test script.br --json");
+  console.log("  brief test - --json < script.br");
+}
+
+function printCheckHelp(): void {
+  console.log("usage:");
+  console.log("  brief check <file.br|-> [--json]");
+  console.log("\noptions:");
+  console.log("  --json   emit machine-readable validation output");
+  console.log("\nexamples:");
+  console.log("  brief check script.br");
+  console.log("  brief check script.br --json");
+  console.log("  brief check - < script.br");
+}
+
+function printReplHelp(): void {
+  console.log("usage:");
+  console.log("  brief repl");
+  console.log("\nStart an interactive Brief REPL session.");
+  console.log("\nexamples:");
+  console.log("  brief repl");
 }
 
 function printErrorAndExit(error: unknown): never {
@@ -144,6 +200,78 @@ function levenshtein(a: string, b: string): number {
   return dp[a.length][b.length];
 }
 
+function parseTestOrCheckArgs(commandName: "test" | "check", args: string[]): {
+  file: string | null;
+  outputMode: OutputMode;
+  help: boolean;
+} {
+  let outputMode: OutputMode = "text";
+  let help = false;
+  let file: string | null = null;
+
+  for (const arg of args) {
+    if (arg === "--help" || arg === "-h") {
+      help = true;
+      continue;
+    }
+    if (arg === "--json") {
+      outputMode = "json";
+      continue;
+    }
+    if (!file) {
+      file = arg;
+      continue;
+    }
+    throw new CliError(`error: brief ${commandName} received unexpected argument '${arg}'`);
+  }
+
+  return { file, outputMode, help };
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+function emitJsonErrorAndExit(error: unknown, extra: Record<string, unknown> = {}): never {
+  const message =
+    error instanceof BriefRuntimeError ? error.format()
+    : error instanceof Error ? error.message
+    : String(error);
+  printJson({ ok: false, error: message, ...extra });
+  process.exit(1);
+}
+
+function summarizeCheck(label: string, source: string): CheckSummary {
+  const program = parse(source);
+  const resolved = resolve(program);
+
+  if (resolved.errors.length > 0) {
+    throw resolved.errors[0];
+  }
+
+  return {
+    ok: true,
+    label,
+    permissions: program.allow.permissions.length,
+    topLevelStatements: program.body.length,
+    testBlocks: program.tests.length,
+  };
+}
+
+async function summarizeTests(label: string, source: string): Promise<TestSummary> {
+  const results = await runTests(source);
+  const passed = results.filter(result => result.passed).length;
+  const failed = results.length - passed;
+
+  return {
+    ok: failed === 0,
+    label,
+    passed,
+    failed,
+    results,
+  };
+}
+
 async function main() {
   if (!command || command === "--help" || command === "-h") {
     printHelp();
@@ -151,6 +279,12 @@ async function main() {
   }
 
   if (command === "run") {
+    const file = cliArgs[1];
+    const scriptArgs = cliArgs.slice(2);
+    if (file === "--help" || file === "-h") {
+      printRunHelp();
+      return;
+    }
     if (!file) {
       console.error("error: brief run requires a file path");
       process.exit(1);
@@ -166,64 +300,82 @@ async function main() {
   }
 
   if (command === "test") {
+    const { file, outputMode, help } = parseTestOrCheckArgs("test", cliArgs.slice(1));
+    if (help) {
+      printTestHelp();
+      return;
+    }
     if (!file) {
       console.error("error: brief test requires a file path");
       process.exit(1);
     }
     try {
       const { source, label } = readSourceInput(file, "test");
-      const results = await runTests(source);
-      if (results.length === 0) {
+      const summary = await summarizeTests(label, source);
+
+      if (outputMode === "json") {
+        printJson(summary);
+        if (!summary.ok) process.exit(1);
+        return;
+      }
+
+      if (summary.results.length === 0) {
         console.log(`no tests found in ${label}`);
         return;
       }
-      let passed = 0;
-      let failed = 0;
 
-      for (const r of results) {
+      for (const r of summary.results) {
         if (r.passed) {
           console.log(`  ✓ ${r.description}`);
-          passed++;
         } else {
           console.log(`  ✗ ${r.description}`);
           console.log(`    ${r.error}`);
-          failed++;
         }
       }
 
-      console.log(`\n${passed} passed, ${failed} failed`);
-      if (failed > 0) process.exit(1);
+      console.log(`\n${summary.passed} passed, ${summary.failed} failed`);
+      if (!summary.ok) process.exit(1);
     } catch (e) {
+      if (outputMode === "json") emitJsonErrorAndExit(e, { label: file === "-" ? "stdin" : file });
       printErrorAndExit(e);
     }
     return;
   }
 
   if (command === "check") {
+    const { file, outputMode, help } = parseTestOrCheckArgs("check", cliArgs.slice(1));
+    if (help) {
+      printCheckHelp();
+      return;
+    }
     if (!file) {
       console.error("error: brief check requires a file path");
       process.exit(1);
     }
     try {
       const { source, label } = readSourceInput(file, "check");
-      const program = parse(source);
-      const resolved = resolve(program);
-
-      if (resolved.errors.length > 0) {
-        throw resolved.errors[0];
+      const summary = summarizeCheck(label, source);
+      if (outputMode === "json") {
+        printJson(summary);
+        return;
       }
 
-      console.log(`✓ ${label} is valid`);
-      console.log(`  ${pluralize(program.allow.permissions.length, "permission")}`);
-      console.log(`  ${pluralize(program.body.length, "top-level statement")}`);
-      console.log(`  ${pluralize(program.tests.length, "test block")}`);
+      console.log(`✓ ${summary.label} is valid`);
+      console.log(`  ${pluralize(summary.permissions, "permission")}`);
+      console.log(`  ${pluralize(summary.topLevelStatements, "top-level statement")}`);
+      console.log(`  ${pluralize(summary.testBlocks, "test block")}`);
     } catch (e) {
+      if (outputMode === "json") emitJsonErrorAndExit(e, { label: file === "-" ? "stdin" : file });
       printErrorAndExit(e);
     }
     return;
   }
 
   if (command === "repl") {
+    if (cliArgs[1] === "--help" || cliArgs[1] === "-h") {
+      printReplHelp();
+      return;
+    }
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,

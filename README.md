@@ -21,6 +21,13 @@ pnpm brief run - --flag < script.br
 pnpm brief check - < script.br
 ```
 
+Use `--json` with `check` and `test` for machine-readable output:
+
+```bash
+pnpm brief check script.br --json
+pnpm brief test script.br --json
+```
+
 > Requires `ANTHROPIC_API_KEY` in your environment (automatically set by Claude Code).
 
 ## Example
