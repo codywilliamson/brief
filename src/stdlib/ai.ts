@@ -112,6 +112,15 @@ export async function aiConverse(messages: BriefValue, configArg?: BriefValue): 
   if (!Array.isArray(messages)) {
     return { kind: "failed", reason: "ai.converse expects an array of [role, content, ...] pairs" };
   }
+  if (messages.length === 0) {
+    return { kind: "failed", reason: "ai.converse requires at least one message" };
+  }
+  if (messages.length % 2 !== 0) {
+    return { kind: "failed", reason: "ai.converse expects role/content pairs" };
+  }
+  if (messages[0] !== "user") {
+    return { kind: "failed", reason: "ai.converse first message must be from 'user'" };
+  }
 
   // build a single prompt from the conversation history
   // the agent sdk uses a single prompt string, so we format the conversation
@@ -123,10 +132,6 @@ export async function aiConverse(messages: BriefValue, configArg?: BriefValue): 
       return { kind: "failed", reason: `invalid message role '${briefToString(role)}', expected 'user' or 'assistant'` };
     }
     conversationPrompt += `${role}: ${briefToString(content)}\n`;
-  }
-
-  if (conversationPrompt === "") {
-    return { kind: "failed", reason: "ai.converse requires at least one message" };
   }
 
   return aiComplete(conversationPrompt, configArg);
@@ -149,8 +154,30 @@ export async function aiToolUse(
   const toolDescriptions = buildToolDescriptions(tools);
   if (typeof toolDescriptions !== "string") return toolDescriptions;
 
-  const fullPrompt = `${prompt}\n\nAvailable tools:\n${toolDescriptions}\n\nUse the tools as needed to answer the question. Format tool calls as: TOOL_CALL: toolName(args)`;
-  return aiComplete(fullPrompt, configArg);
+  const fullPrompt = buildToolPrompt(prompt, toolDescriptions);
+  const config = parseConfig(configArg ?? null);
+  const options = buildQueryOptions(config);
+
+  try {
+    let result = "";
+    let contentBlocks: BriefValue[] = [];
+    for await (const msg of queryFn({ prompt: fullPrompt, options })) {
+      if (msg.type === "assistant" && msg.message?.content) {
+        contentBlocks = contentBlocks.concat(toBriefContentBlocks(msg.message.content));
+      } else if (msg.type === "result" && msg.subtype === "success") {
+        result = msg.result;
+      } else if (msg.type === "result") {
+        return { kind: "failed", reason: `agent error: ${msg.subtype}` };
+      }
+    }
+
+    if (contentBlocks.length === 0) {
+      contentBlocks = [["text", result]];
+    }
+    return { kind: "ok", value: contentBlocks };
+  } catch (e: any) {
+    return { kind: "failed", reason: e.message ?? String(e) };
+  }
 }
 
 function buildToolDescriptions(tools: BriefValue[]): string | BriefResult {
@@ -171,6 +198,61 @@ function buildToolDescriptions(tools: BriefValue[]): string | BriefResult {
     lines.push(`- ${name}(${params.join(", ")}): ${desc}`);
   }
   return lines.join("\n");
+}
+
+function buildToolPrompt(prompt: string, toolDescriptions: string): string {
+  return `${prompt}\n\nAvailable tools:\n${toolDescriptions}\n\nUse the tools as needed to answer the question. If you need a tool, emit a structured tool call.`;
+}
+
+function toBriefContentBlocks(content: any[]): BriefValue[] {
+  const blocks: BriefValue[] = [];
+
+  for (const block of content) {
+    if (block?.type === "text") {
+      blocks.push(["text", typeof block.text === "string" ? block.text : ""]);
+      continue;
+    }
+
+    if (block?.type === "tool_use") {
+      blocks.push([
+        "tool_use",
+        briefToString(block.name ?? ""),
+        briefToString(block.id ?? ""),
+        objectToInputPairs(block.input ?? {}),
+      ]);
+    }
+  }
+
+  return blocks;
+}
+
+function objectToInputPairs(value: unknown): BriefValue[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+
+  const pairs: BriefValue[] = [];
+  for (const [key, entry] of Object.entries(value)) {
+    pairs.push(key, jsonToBriefValue(entry));
+  }
+  return pairs;
+}
+
+function jsonToBriefValue(value: unknown): BriefValue {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => jsonToBriefValue(item));
+  }
+  if (typeof value === "object") {
+    const pairs: BriefValue[] = [];
+    for (const [key, entry] of Object.entries(value)) {
+      pairs.push(key, jsonToBriefValue(entry));
+    }
+    return pairs;
+  }
+  return briefToString(value as BriefValue);
 }
 
 // agentic loop - the real power
@@ -195,7 +277,8 @@ export async function aiLoop(
 
   const config = parseConfig(configArg ?? null);
   const maxIterations = 10;
-  let conversationContext = prompt;
+  const basePrompt = buildToolPrompt(prompt, toolDescriptions);
+  let conversationContext = basePrompt;
 
   try {
     for (let i = 0; i < maxIterations; i++) {
@@ -205,8 +288,8 @@ export async function aiLoop(
       };
 
       let result = "";
-      let hasToolCalls = false;
-      const toolCalls: { name: string; args: string }[] = [];
+      const toolCalls: { name: string; input: BriefValue[] }[] = [];
+      const assistantTexts: string[] = [];
 
       for await (const msg of queryFn({ prompt: conversationContext, options })) {
         if (msg.type === "result" && msg.subtype === "success") {
@@ -215,40 +298,38 @@ export async function aiLoop(
           return { kind: "failed", reason: `agent error: ${msg.subtype}` };
         } else if (msg.type === "assistant" && msg.message?.content) {
           for (const block of msg.message.content) {
-            if (block.type === "tool_use") {
-              hasToolCalls = true;
+            if (block?.type === "text" && typeof block.text === "string") {
+              assistantTexts.push(block.text);
+            }
+            if (block?.type === "tool_use") {
               const toolBlock = block as any;
-              toolCalls.push({ name: toolBlock.name, args: JSON.stringify(toolBlock.input ?? {}) });
+              toolCalls.push({
+                name: briefToString(toolBlock.name ?? ""),
+                input: objectToInputPairs(toolBlock.input ?? {}),
+              });
             }
           }
         }
       }
 
       // if no tool calls, we're done
-      if (!hasToolCalls || toolCalls.length === 0) {
-        return { kind: "ok", value: result };
+      if (toolCalls.length === 0) {
+        const finalText = result || assistantTexts.join("\n");
+        return { kind: "ok", value: finalText };
       }
 
       // execute tool calls and build context for next turn
       const toolResults: string[] = [];
       for (const tc of toolCalls) {
-        const inputPairs: BriefValue[] = [];
-        try {
-          const parsed = JSON.parse(tc.args);
-          if (typeof parsed === "object" && parsed !== null) {
-            for (const [k, v] of Object.entries(parsed)) {
-              inputPairs.push(k);
-              inputPairs.push(typeof v === "string" ? v : JSON.stringify(v));
-            }
-          }
-        } catch {}
-
-        const toolResult = await toolExecutor(tc.name, inputPairs);
-        toolResults.push(`Tool ${tc.name} returned: ${briefToString(toolResult)}`);
+        const toolResult = await toolExecutor(tc.name, tc.input);
+        toolResults.push(`Tool ${tc.name}(${briefToString(tc.input)}) returned: ${briefToString(toolResult)}`);
       }
 
       // build next prompt with tool results
-      conversationContext = `${prompt}\n\nPrevious tool results:\n${toolResults.join("\n")}\n\nContinue based on these results.`;
+      const assistantPrefix = assistantTexts.length > 0
+        ? `Assistant said:\n${assistantTexts.join("\n")}\n\n`
+        : "";
+      conversationContext = `${basePrompt}\n\n${assistantPrefix}Previous tool results:\n${toolResults.join("\n")}\n\nContinue based on these results.`;
     }
 
     return { kind: "failed", reason: "ai.loop exceeded max iterations (10)" };

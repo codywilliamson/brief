@@ -231,9 +231,21 @@ describe("ai.converse", () => {
   });
 
   it("rejects invalid role", async () => {
-    const result = await aiConverse(["system", "test"]);
+    const result = await aiConverse(["user", "hello", "system", "test"]);
     expect(result.kind).toBe("failed");
     expect((result as any).reason).toContain("invalid message role");
+  });
+
+  it("requires the first message to be from the user", async () => {
+    const result = await aiConverse(["assistant", "hello", "user", "hi"]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("first message");
+  });
+
+  it("rejects odd-length message arrays", async () => {
+    const result = await aiConverse(["user", "hello", "assistant"]);
+    expect(result.kind).toBe("failed");
+    expect((result as any).reason).toContain("pairs");
   });
 
   it("accepts config", async () => {
@@ -249,7 +261,13 @@ describe("ai.toolUse", () => {
   afterEach(() => setQueryFn(null));
 
   it("builds tool descriptions into prompt", async () => {
-    const mock = createMockQueryFn({ result: "tool result" });
+    const mock = createMockQueryFn({
+      toolUseBlocks: [
+        { type: "text", text: "Checking weather..." },
+        { type: "tool_use", id: "call_1", name: "getWeather", input: { city: "San Francisco" } },
+      ],
+      result: "tool result",
+    });
     setQueryFn(mock);
 
     const tools = [
@@ -257,7 +275,13 @@ describe("ai.toolUse", () => {
     ];
 
     const result = await aiToolUse("what's the weather?", tools);
-    expect(result.kind).toBe("ok");
+    expect(result).toEqual({
+      kind: "ok",
+      value: [
+        ["text", "Checking weather..."],
+        ["tool_use", "getWeather", "call_1", ["city", "San Francisco"]],
+      ],
+    });
     expect(mock._calls[0].prompt).toContain("getWeather");
     expect(mock._calls[0].prompt).toContain("get current weather");
   });
@@ -320,6 +344,8 @@ describe("ai.loop", () => {
     expect(result).toEqual({ kind: "ok", value: "final answer" });
     expect(executor).toHaveBeenCalledOnce();
     expect(executor).toHaveBeenCalledWith("lookup", ["query", "test"]);
+    expect(mock._calls[0].prompt).toContain("Available tools:");
+    expect(mock._calls[1].prompt).toContain("Previous tool results:");
   });
 
   it("handles multiple tool calls in one response", async () => {
@@ -353,6 +379,31 @@ describe("ai.loop", () => {
     const result = await aiLoop("get both", [["getA", "a"], ["getB", "b"]], executor);
     expect(result.kind).toBe("ok");
     expect(calls).toEqual(["getA", "getB"]);
+  });
+
+  it("preserves non-string tool input values", async () => {
+    const mock = createMockQueryFn({
+      perCall: [
+        [
+          {
+            type: "assistant",
+            message: {
+              content: [{ type: "tool_use", name: "inspect", input: { count: 2, enabled: true, tags: ["a", "b"] } }],
+            },
+          },
+          { type: "result", subtype: "success", result: "" },
+        ],
+        [
+          { type: "result", subtype: "success", result: "done" },
+        ],
+      ],
+    });
+    setQueryFn(mock);
+
+    const executor = vi.fn(async () => "ok");
+    await aiLoop("inspect", [["inspect", "inspect values"]], executor);
+
+    expect(executor).toHaveBeenCalledWith("inspect", ["count", 2, "enabled", true, "tags", ["a", "b"]]);
   });
 
   it("rejects non-string prompt", async () => {
