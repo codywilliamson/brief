@@ -24,16 +24,16 @@ let summary =
   await ask ai.complete("summarize the following web page content:\n\n{page}", config)
   or fail "summarization failed"
 
-await ask fs.write("web-summary.txt", summary)
+await ask fs.write("web-summary.md", summary)
   or fail "could not save summary"
 
 print(summary)
-print("\nsaved to web-summary.txt")
+print("\nsaved to web-summary.md")
 
 test "fetches and summarizes url" {
   mock http.fetch returns Ok("# Anthropic Cookbook\nA collection of guides and examples.")
   mock ai.complete returns Ok("- Anthropic Cookbook is a collection of guides\n- Contains examples for using Claude")
-  mock fs.write returns Ok(null)
+  mock fs.write("web-summary.md", "- Anthropic Cookbook is a collection of guides\n- Contains examples for using Claude") returns Ok(null)
   expect await run() to be ok
 }
 

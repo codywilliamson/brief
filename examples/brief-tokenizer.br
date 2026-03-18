@@ -4,17 +4,6 @@ allow
 # a simple tokenizer for brief source code, written in brief
 # this is the first step toward self-hosting
 
-return failed("usage: brief run brief-tokenizer.br <file.br>") if len(args) == 0
-
-let source =
-  await ask fs.read(args[0])
-  or fail "could not read {args[0]}"
-
-# tokenize the source
-let tokens = []
-let pos = 0
-let line = 1
-
 let keywords = [
   "allow", "let", "set", "async", "fn", "return",
   "if", "else", "unless", "until", "for", "in",
@@ -36,87 +25,131 @@ async fn isAlphaNum(ch) {
   return isAlpha(ch) || isDigit(ch)
 }
 
-# main tokenization loop
-until pos >= len(source) {
-  let ch = source[pos]
+async fn tokenizeSource(source) {
+  let tokens = []
+  let tpos = 0
+  let tline = 1
 
-  # skip whitespace
-  if ch == " " || ch == "\t" || ch == "\r" {
-    set pos = pos + 1
-  } else {
-    if ch == "\n" {
-      set tokens = push(tokens, ["NEWLINE", "\\n", line])
-      set pos = pos + 1
-      set line = line + 1
+  # main tokenization loop
+  until tpos >= len(source) {
+    let ch = source[tpos]
+
+    # skip whitespace
+    if ch == " " || ch == "\t" || ch == "\r" {
+      set tpos = tpos + 1
     } else {
-      if ch == "#" {
-        # skip comment to end of line
-        let comment = ""
-        set pos = pos + 1
-        until pos >= len(source) || source[pos] == "\n" {
-          set comment = comment + source[pos]
-          set pos = pos + 1
-        }
-        set tokens = push(tokens, ["COMMENT", trim(comment), line])
+      if ch == "\n" {
+        set tokens = push(tokens, ["NEWLINE", "\\n", tline])
+        set tpos = tpos + 1
+        set tline = tline + 1
       } else {
-        if isDigit(ch) {
-          # number
-          let num = ""
-          until pos >= len(source) || !isDigit(source[pos]) {
-            set num = num + source[pos]
-            set pos = pos + 1
+        if ch == "#" {
+          # skip comment to end of line
+          let comment = ""
+          set tpos = tpos + 1
+          until tpos >= len(source) || source[tpos] == "\n" {
+            set comment = comment + source[tpos]
+            set tpos = tpos + 1
           }
-          set tokens = push(tokens, ["NUMBER", num, line])
+          set tokens = push(tokens, ["COMMENT", trim(comment), tline])
         } else {
-          if isAlpha(ch) {
-            # identifier or keyword
-            let word = ""
-            until pos >= len(source) || !isAlphaNum(source[pos]) {
-              set word = word + source[pos]
-              set pos = pos + 1
-            }
-            if contains(keywords, word) {
-              set tokens = push(tokens, ["KEYWORD", word, line])
-            } else {
-              set tokens = push(tokens, ["IDENT", word, line])
-            }
-          } else {
-            if ch == "\"" {
-              # string
-              let str = ""
-              set pos = pos + 1
-              until pos >= len(source) || source[pos] == "\"" {
-                set str = str + source[pos]
-                set pos = pos + 1
+          if isDigit(ch) {
+            # number
+            let num = ""
+            let readingNumber = true
+            until tpos >= len(source) || !readingNumber {
+              if isDigit(source[tpos]) {
+                set num = num + source[tpos]
+                set tpos = tpos + 1
+              } else {
+                set readingNumber = false
               }
-              set pos = pos + 1
-              set tokens = push(tokens, ["STRING", str, line])
+            }
+            set tokens = push(tokens, ["NUMBER", num, tline])
+          } else {
+            if isAlpha(ch) {
+              # identifier or keyword
+              let word = ""
+              let readingWord = true
+              until tpos >= len(source) || !readingWord {
+                if isAlphaNum(source[tpos]) {
+                  set word = word + source[tpos]
+                  set tpos = tpos + 1
+                } else {
+                  set readingWord = false
+                }
+              }
+              if contains(keywords, word) {
+                set tokens = push(tokens, ["KEYWORD", word, tline])
+              } else {
+                set tokens = push(tokens, ["IDENT", word, tline])
+              }
             } else {
-              # operator or delimiter
-              set tokens = push(tokens, ["SYMBOL", ch, line])
-              set pos = pos + 1
+              if ch == "\"" {
+                # string
+                let str = ""
+                set tpos = tpos + 1
+                until tpos >= len(source) || source[tpos] == "\"" {
+                  set str = str + source[tpos]
+                  set tpos = tpos + 1
+                }
+                set tpos = tpos + 1
+                set tokens = push(tokens, ["STRING", str, tline])
+              } else {
+                # operator or delimiter
+                set tokens = push(tokens, ["SYMBOL", ch, tline])
+                set tpos = tpos + 1
+              }
             }
           }
         }
       }
     }
   }
+
+  return tokens
 }
 
-# print results
-print("tokenized {len(tokens)} tokens from {args[0]}")
-print("")
+async fn tokenizeFile(path) {
+  let source =
+    await ask fs.read(path)
+    or return failed("could not read {path}")
 
-for tok in tokens {
-  let kind = tok[0]
-  let value = tok[1]
-  let tokLine = tok[2]
-  unless kind == "NEWLINE" {
-    print("  {tokLine}: {kind} '{value}'")
+  return Ok(tokenizeSource(source))
+}
+
+return failed("usage: brief run brief-tokenizer.br <file.br>") if len(args) == 0
+
+let path = at(args, 0)
+let result = tokenizeFile(path)
+
+when result {
+  ok(tokens) => {
+    print("tokenized {len(tokens)} tokens from {path}")
+    print("")
+
+    for tok in tokens {
+      let kind = tok[0]
+      let value = tok[1]
+      let tokLine = tok[2]
+      unless kind == "NEWLINE" {
+        print("  {tokLine}: {kind} '{value}'")
+      }
+    }
   }
+  failed(err) => return failed(err)
 }
 
 test "tokenizes basic source" {
-  mock fs.read returns Ok("allow\n  fs.read\nlet x = 42")
-  expect await run() to be ok
+  let tokens = tokenizeSource("allow\n  fs.read\nlet x = 42")
+  expect len(tokens) to be 10
+  expect tokens[0] to be ["KEYWORD", "allow", 1]
+  expect tokens[2] to be ["IDENT", "fs", 2]
+  expect tokens[6] to be ["KEYWORD", "let", 3]
+  expect tokens[9] to be ["NUMBER", "42", 3]
+}
+
+test "reads source from a file path" {
+  mock fs.read("example.br") returns Ok("print(\"hi\")")
+  expect tokenizeFile("example.br") to be ok([["KEYWORD", "print", 1], ["SYMBOL", "(", 1], ["STRING", "hi", 1], ["SYMBOL", ")", 1]])
 }

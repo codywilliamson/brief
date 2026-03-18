@@ -5,20 +5,6 @@ allow
 # AST nodes are tagged arrays: ["NodeType", ...fields]
 # usage: brief run examples/brief-parser.br <file.br>
 
-return failed("usage: brief run brief-parser.br <file.br>") if len(args) == 0
-
-let source =
-  await ask fs.read(args[0])
-  or fail "could not read {args[0]}"
-
-# ============================================================
-# tokenizer (inline since brief has no imports)
-# ============================================================
-
-let tokens = []
-let tpos = 0
-let tline = 1
-
 let keywords = [
   "allow", "let", "set", "async", "fn", "return",
   "if", "else", "unless", "until", "for", "in",
@@ -46,76 +32,96 @@ async fn isTwoCharOp(a, b) {
   return pair == "==" || pair == "!=" || pair == ">=" || pair == "<=" || pair == "&&" || pair == "||" || pair == "=>"
 }
 
-# tokenize
-until tpos >= len(source) {
-  let ch = source[tpos]
+async fn tokenizeSource(source) {
+  let tokens = []
+  let tpos = 0
+  let tline = 1
 
-  if ch == " " || ch == "\t" || ch == "\r" {
-    set tpos = tpos + 1
-  } else {
-    if ch == "\n" {
-      set tokens = push(tokens, ["NL", "\n", tline])
+  until tpos >= len(source) {
+    let ch = source[tpos]
+
+    if ch == " " || ch == "\t" || ch == "\r" {
       set tpos = tpos + 1
-      set tline = tline + 1
     } else {
-      if ch == "#" {
+      if ch == "\n" {
+        set tokens = push(tokens, ["NL", "\n", tline])
         set tpos = tpos + 1
-        until tpos >= len(source) || source[tpos] == "\n" {
-          set tpos = tpos + 1
-        }
+        set tline = tline + 1
       } else {
-        if isDigit(ch) {
-          let num = ""
-          until tpos >= len(source) || !isDigit(source[tpos]) {
-            set num = num + source[tpos]
+        if ch == "#" {
+          set tpos = tpos + 1
+          until tpos >= len(source) || source[tpos] == "\n" {
             set tpos = tpos + 1
           }
-          if tpos < len(source) && source[tpos] == "." {
-            set num = num + "."
-            set tpos = tpos + 1
-            until tpos >= len(source) || !isDigit(source[tpos]) {
-              set num = num + source[tpos]
-              set tpos = tpos + 1
-            }
-          }
-          set tokens = push(tokens, ["NUM", num, tline])
         } else {
-          if isAlpha(ch) {
-            let word = ""
-            until tpos >= len(source) || !isAlphaNum(source[tpos]) {
-              set word = word + source[tpos]
-              set tpos = tpos + 1
+          if isDigit(ch) {
+            let num = ""
+            let readingNumber = true
+            until tpos >= len(source) || !readingNumber {
+              if isDigit(source[tpos]) {
+                set num = num + source[tpos]
+                set tpos = tpos + 1
+              } else {
+                set readingNumber = false
+              }
             }
-            if contains(keywords, word) {
-              set tokens = push(tokens, ["KW", word, tline])
-            } else {
-              set tokens = push(tokens, ["ID", word, tline])
-            }
-          } else {
-            if ch == "\"" {
-              let str = ""
+            if tpos < len(source) && source[tpos] == "." {
+              set num = num + "."
               set tpos = tpos + 1
-              until tpos >= len(source) || source[tpos] == "\"" {
-                if source[tpos] == "\\" {
+              let readingFraction = true
+              until tpos >= len(source) || !readingFraction {
+                if isDigit(source[tpos]) {
+                  set num = num + source[tpos]
                   set tpos = tpos + 1
-                  if tpos < len(source) {
+                } else {
+                  set readingFraction = false
+                }
+              }
+            }
+            set tokens = push(tokens, ["NUM", num, tline])
+          } else {
+            if isAlpha(ch) {
+              let word = ""
+              let readingWord = true
+              until tpos >= len(source) || !readingWord {
+                if isAlphaNum(source[tpos]) {
+                  set word = word + source[tpos]
+                  set tpos = tpos + 1
+                } else {
+                  set readingWord = false
+                }
+              }
+              if contains(keywords, word) {
+                set tokens = push(tokens, ["KW", word, tline])
+              } else {
+                set tokens = push(tokens, ["ID", word, tline])
+              }
+            } else {
+              if ch == "\"" {
+                let str = ""
+                set tpos = tpos + 1
+                until tpos >= len(source) || source[tpos] == "\"" {
+                  if source[tpos] == "\\" {
+                    set tpos = tpos + 1
+                    if tpos < len(source) {
+                      set str = str + source[tpos]
+                    }
+                  } else {
                     set str = str + source[tpos]
                   }
-                } else {
-                  set str = str + source[tpos]
+                  set tpos = tpos + 1
                 }
                 set tpos = tpos + 1
-              }
-              set tpos = tpos + 1
-              set tokens = push(tokens, ["STR", str, tline])
-            } else {
-              # check for two-char operators
-              if tpos + 1 < len(source) && isTwoCharOp(ch, source[tpos + 1]) {
-                set tokens = push(tokens, ["OP", ch + source[tpos + 1], tline])
-                set tpos = tpos + 2
+                set tokens = push(tokens, ["STR", str, tline])
               } else {
-                set tokens = push(tokens, ["OP", ch, tline])
-                set tpos = tpos + 1
+                # check for two-char operators
+                if tpos + 1 < len(source) && isTwoCharOp(ch, source[tpos + 1]) {
+                  set tokens = push(tokens, ["OP", ch + source[tpos + 1], tline])
+                  set tpos = tpos + 2
+                } else {
+                  set tokens = push(tokens, ["OP", ch, tline])
+                  set tpos = tpos + 1
+                }
               }
             }
           }
@@ -123,9 +129,12 @@ until tpos >= len(source) {
       }
     }
   }
+
+  set tokens = push(tokens, ["EOF", "", tline])
+  return tokens
 }
 
-set tokens = push(tokens, ["EOF", "", tline])
+let tokens = []
 
 # ============================================================
 # parser - recursive descent
@@ -760,7 +769,19 @@ async fn parseBlock() {
 # run the parser
 # ============================================================
 
-let ast = parseProgram()
+async fn parseSource(source) {
+  set tokens = tokenizeSource(source)
+  set pos = 0
+  return parseProgram()
+}
+
+async fn parseFile(path) {
+  let source =
+    await ask fs.read(path)
+    or return failed("could not read {path}")
+
+  return Ok(parseSource(source))
+}
 
 # ============================================================
 # pretty print the AST
@@ -885,11 +906,31 @@ async fn printNode(node, depth) {
   }
 }
 
-print("parsed {args[0]} into AST:")
-print("")
-printNode(ast, 0)
+return failed("usage: brief run brief-parser.br <file.br>") if len(args) == 0
+
+let path = at(args, 0)
+let result = parseFile(path)
+
+when result {
+  ok(ast) => {
+    print("parsed {path} into AST:")
+    print("")
+    printNode(ast, 0)
+  }
+  failed(err) => return failed(err)
+}
 
 test "parses a simple program" {
-  mock fs.read returns Ok("allow\n  fs.read\n\nlet x = 42\nprint(x)")
-  expect await run() to be ok
+  let ast = parseSource("allow\n  fs.read\n\nlet x = 42\nprint(x)")
+  expect ast[0] to be "Program"
+  expect ast[1] to be ["Allow", ["fs.read"]]
+  expect len(ast[2]) to be 2
+  expect ast[2][0][0] to be "LetDecl"
+  expect ast[2][0][1] to be "x"
+  expect ast[2][1][0] to be "ExprStmt"
+}
+
+test "reads source from a file path" {
+  mock fs.read("example.br") returns Ok("allow\n  fs.read\n\nprint(\"hi\")")
+  expect parseFile("example.br") to be ok(["Program", ["Allow", ["fs.read"]], [["ExprStmt", ["CallExpr", ["Ident", "print"], [["StringLit", "hi"]]]]], []])
 }

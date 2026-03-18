@@ -4,40 +4,54 @@ allow
 
 # research multiple topics in parallel using await all
 
-let topics = ["quantum computing", "gene editing", "nuclear fusion"]
-
 let config = ["system", "write a 2-sentence summary of the current state of this technology. be factual and concise."]
 
-# fire off all research queries in parallel
-let results = await all {
-  ask ai.complete("current state of: quantum computing", config)
-  ask ai.complete("current state of: gene editing", config)
-  ask ai.complete("current state of: nuclear fusion", config)
-}
+async fn buildBriefing() {
+  let topics = ["quantum computing", "gene editing", "nuclear fusion"]
 
-# build the report
-let report = "# technology briefing\n\n"
-let i = 0
-for topic in topics {
-  let result = results
-  when result {
-    ok(summary) => {
-      let report = report + "## " + topic + "\n" + summary + "\n\n"
-    }
-    failed(err) => {
-      let report = report + "## " + topic + "\n(failed: " + err + ")\n\n"
-    }
+  let results = await all {
+    ask ai.complete("current state of: quantum computing", config)
+    ask ai.complete("current state of: gene editing", config)
+    ask ai.complete("current state of: nuclear fusion", config)
   }
-  let i = i + 1
+
+  let report = "# technology briefing\n\n"
+  let i = 0
+  for topic in topics {
+    let result = results[i]
+    when result {
+      ok(summary) => {
+        set report = report + "## " + topic + "\n" + summary + "\n\n"
+      }
+      failed(err) => {
+        set report = report + "## " + topic + "\n(failed: " + err + ")\n\n"
+      }
+    }
+    set i = i + 1
+  }
+
+  return Ok(report)
 }
 
-await ask fs.write("briefing.txt", report)
-  or fail "could not save briefing"
+let briefing = buildBriefing()
+when briefing {
+  ok(report) => {
+    await ask fs.write("briefing.md", report)
+      or fail "could not save briefing"
 
-print(report)
-print("briefing saved to briefing.txt")
+    print(report)
+    print("briefing saved to briefing.md")
+  }
+  failed(err) => return failed(err)
+}
 
 test "parallel research completes" {
+  let expected = "# technology briefing\n\n## quantum computing\nthis technology is advancing rapidly.\n\n## gene editing\nthis technology is advancing rapidly.\n\n## nuclear fusion\nthis technology is advancing rapidly.\n\n"
+  mock ai.complete returns Ok("this technology is advancing rapidly.")
+  expect buildBriefing() to be ok(expected)
+}
+
+test "saves the markdown briefing" {
   mock ai.complete returns Ok("this technology is advancing rapidly.")
   mock fs.write returns Ok(null)
   expect await run() to be ok
