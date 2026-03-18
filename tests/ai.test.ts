@@ -107,6 +107,14 @@ describe("ai.complete", () => {
     expect(mock._calls[0].options.systemPrompt).toBe("you are a pirate");
   });
 
+  it("accepts config with maxTokens", async () => {
+    const mock = createMockQueryFn();
+    setQueryFn(mock);
+
+    await aiComplete("test", ["maxTokens", 321]);
+    expect(mock._calls[0].options.maxOutputTokens).toBe(321);
+  });
+
   it("returns failed on non-string prompt", async () => {
     const result = await aiComplete(42);
     expect(result.kind).toBe("failed");

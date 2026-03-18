@@ -35,6 +35,9 @@ function buildQueryOptions(config: AiConfig) {
     model: config.model ?? DEFAULT_MODEL,
     permissionMode: "bypassPermissions" as const,
     allowDangerouslySkipPermissions: true,
+    ...(config.maxTokens !== undefined && {
+      maxOutputTokens: config.maxTokens,
+    }),
     ...(config.system && {
       systemPrompt: config.system,
     }),
