@@ -18,6 +18,9 @@ export interface TestResult {
 export async function runTests(source: string): Promise<TestResult[]> {
   const program = parse(source);
   const resolved = resolve(program);
+  if (resolved.errors.length > 0) {
+    throw resolved.errors[0];
+  }
   const results: TestResult[] = [];
 
   for (const test of program.tests) {
@@ -37,7 +40,7 @@ async function runSingleTest(
     // collect mocks and expects from test body
     const mocks: MockEntry[] = [];
     const expects: ExpectStmt[] = [];
-    const otherStmts: Node[] = [];
+    const setupStmts: Node[] = [];
 
     for (const node of test.body) {
       if (node.kind === "MockStmt") {
@@ -50,7 +53,7 @@ async function runSingleTest(
       } else if (node.kind === "ExpectStmt") {
         expects.push(node as ExpectStmt);
       } else {
-        otherStmts.push(node);
+        setupStmts.push(node);
       }
     }
 
@@ -62,9 +65,13 @@ async function runSingleTest(
     };
 
     // create interpreter and run program body with mocks
+    let programResult: BriefValue = null;
     const interp = new Interpreter({
       permissions,
       toolHandler,
+      hostFunctions: {
+        run: async () => programResult,
+      },
       printFn: () => {}, // suppress output in tests
       sourceLines: [],
     });
@@ -72,7 +79,6 @@ async function runSingleTest(
     // run program body
     // successful completion wraps as Ok, runtime errors wrap as failed
     // this enables the `expect await run() to be ok/failed` pattern
-    let programResult: BriefValue = null;
     try {
       const rawResult = await interp.run(program);
       // if the program explicitly returned a Result, use it directly
@@ -89,9 +95,14 @@ async function runSingleTest(
       }
     }
 
+    const testEnv = interp.createChildEnvironment();
+    for (const stmt of setupStmts) {
+      await interp.execute(stmt, testEnv);
+    }
+
     // evaluate expects
     for (const exp of expects) {
-      await evaluateExpect(exp, interp, programResult);
+      await evaluateExpect(exp, interp, testEnv);
     }
 
     return { description: test.description, passed: true };
@@ -143,57 +154,69 @@ async function evaluateMockArgs(args: Node[]): Promise<BriefValue[]> {
   return result;
 }
 
-function evaluateExpect(
+async function evaluateExpect(
   exp: ExpectStmt,
   interp: Interpreter,
-  programResult: BriefValue,
-): void {
-  // for now, expect operates on the program result when subject is `await run()`
-  // or on static values
-  const subject = programResult;
+  testEnv: ReturnType<Interpreter["createChildEnvironment"]>,
+): Promise<void> {
+  const subject = await interp.evaluate(exp.subject, testEnv);
 
   switch (exp.matcher) {
     case "beOk": {
-      if (!subject || typeof subject !== "object" || !("kind" in subject) || (subject as any).kind !== "ok") {
+      if (!isResult(subject) || subject.kind !== "ok") {
         throw new Error(`expected result to be ok, got ${briefToString(subject)}`);
       }
       if (exp.expected) {
-        // check specific value
+        const expectedVal = await interp.evaluate(exp.expected, testEnv);
+        if (!briefDeepEqual(subject.value, expectedVal)) {
+          throw new Error(`expected Ok(${briefToString(expectedVal)}), got Ok(${briefToString(subject.value)})`);
+        }
       }
       break;
     }
     case "beFailed": {
-      if (!subject || typeof subject !== "object" || !("kind" in subject) || (subject as any).kind !== "failed") {
+      if (!isResult(subject) || subject.kind !== "failed") {
         throw new Error(`expected result to be failed, got ${briefToString(subject)}`);
       }
       if (exp.expected) {
-        const expectedVal = evaluateStaticValueSync(exp.expected);
-        if ((subject as any).reason !== expectedVal) {
-          throw new Error(`expected failed("${expectedVal}"), got failed("${(subject as any).reason}")`);
+        const expectedVal = await interp.evaluate(exp.expected, testEnv);
+        if (subject.reason !== briefToString(expectedVal)) {
+          throw new Error(`expected failed("${briefToString(expectedVal)}"), got failed("${subject.reason}")`);
         }
       }
       break;
     }
     case "be": {
-      if (exp.expected) {
-        const expectedVal = evaluateStaticValueSync(exp.expected);
-        if (subject !== expectedVal) {
-          throw new Error(`expected ${briefToString(expectedVal)}, got ${briefToString(subject)}`);
-        }
+      if (!exp.expected) {
+        throw new Error("expected assertion value");
+      }
+      const expectedVal = await interp.evaluate(exp.expected, testEnv);
+      if (!briefDeepEqual(subject, expectedVal)) {
+        throw new Error(`expected ${briefToString(expectedVal)}, got ${briefToString(subject)}`);
       }
       break;
     }
   }
 }
 
-function evaluateStaticValueSync(node: Node): BriefValue {
-  switch (node.kind) {
-    case "StringLit": return node.value;
-    case "NumberLit": return node.value;
-    case "BoolLit": return node.value;
-    case "NullLit": return null;
-    default: return null;
+function isResult(value: BriefValue): value is BriefResult {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && "kind" in value;
+}
+
+function briefDeepEqual(a: BriefValue, b: BriefValue): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((value, index) => briefDeepEqual(value, b[index]));
   }
+  if (isResult(a) && isResult(b)) {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === "ok" && b.kind === "ok") return briefDeepEqual(a.value, b.value);
+    if (a.kind === "failed" && b.kind === "failed") return a.reason === b.reason;
+  }
+  return false;
 }
 
 function findMock(mocks: MockEntry[], tool: string, args: BriefValue[]): MockEntry | undefined {
@@ -206,5 +229,5 @@ function findMock(mocks: MockEntry[], tool: string, args: BriefValue[]): MockEnt
 
 function argsMatch(mockArgs: BriefValue[], callArgs: BriefValue[]): boolean {
   if (mockArgs.length !== callArgs.length) return false;
-  return mockArgs.every((a, i) => a === callArgs[i]);
+  return mockArgs.every((arg, index) => briefDeepEqual(arg, callArgs[index]));
 }

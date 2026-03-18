@@ -31,14 +31,19 @@ export class Parser {
 
     const body: Node[] = [];
     const tests: AST.TestBlock[] = [];
+    let seenTestBlock = false;
 
     while (!this.isAtEnd()) {
       this.skipNewlines();
       if (this.isAtEnd()) break;
 
       if (this.check(TokenType.Test)) {
+        seenTestBlock = true;
         tests.push(this.parseTestBlock());
       } else {
+        if (seenTestBlock) {
+          throw this.error("test blocks must appear at the bottom of the file", this.peek());
+        }
         body.push(this.parseStatement());
       }
       this.skipNewlines();

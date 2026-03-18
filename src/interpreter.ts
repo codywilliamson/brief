@@ -27,11 +27,13 @@ class OrReturnSignal {
 
 export type ToolHandler = (tool: string, args: BriefValue[]) => Promise<BriefResult>;
 export type StreamToolHandler = (tool: string, args: BriefValue[]) => Promise<BriefStream<string>>;
+export type HostFunction = (...args: BriefValue[]) => BriefValue | Promise<BriefValue>;
 
 export interface InterpreterOptions {
   permissions: Set<string>;
   toolHandler?: ToolHandler;
   streamHandler?: StreamToolHandler;
+  hostFunctions?: Record<string, HostFunction>;
   printFn?: (...args: BriefValue[]) => void;
   sourceLines?: string[];
   scriptArgs?: string[];
@@ -78,6 +80,7 @@ export class Interpreter {
   private permissions: Set<string>;
   private toolHandler: ToolHandler;
   private streamHandler: StreamToolHandler;
+  private hostFunctions: Record<string, HostFunction>;
   private printFn: (...args: BriefValue[]) => void;
   private sourceLines: string[];
 
@@ -95,6 +98,7 @@ export class Interpreter {
       stream.end();
       return stream;
     });
+    this.hostFunctions = options.hostFunctions ?? {};
 
     // register stdlib
     for (const [name, fn] of Object.entries(STDLIB_FUNCTIONS)) {
@@ -103,9 +107,16 @@ export class Interpreter {
     this.globalEnv.set("print", "print" as any);
     this.globalEnv.set("Ok", "Ok" as any);
     this.globalEnv.set("failed", "failed" as any);
+    for (const name of Object.keys(this.hostFunctions)) {
+      this.globalEnv.set(name, name as any);
+    }
 
     // inject script args as a global array
     this.globalEnv.set("args", (options.scriptArgs ?? []) as BriefValue);
+  }
+
+  createChildEnvironment(): Environment {
+    return new Environment(this.globalEnv);
   }
 
   async run(program: Program): Promise<BriefValue> {
@@ -450,6 +461,9 @@ export class Interpreter {
       }
       if (callee === "failed") {
         return { kind: "failed", reason: briefToString(args[0] ?? null) } as BriefResult;
+      }
+      if (callee in this.hostFunctions) {
+        return await this.hostFunctions[callee](...args);
       }
       if (callee in STDLIB_FUNCTIONS) {
         return STDLIB_FUNCTIONS[callee](...args);

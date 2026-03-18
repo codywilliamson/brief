@@ -79,6 +79,7 @@ export function resolve(program: Program): ResolveResult {
   // resolve test blocks
   for (const test of program.tests) {
     const testScope: Scope = { parent: globalScope, names: new Set() };
+    testScope.names.add("run");
     for (const node of test.body) {
       resolveNode(node, testScope, permissions, errors);
     }

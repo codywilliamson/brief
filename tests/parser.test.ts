@@ -283,6 +283,10 @@ describe("parser", () => {
       expect(exp.matcher).toBe("be");
       expect(exp.expected.value).toBe(5);
     });
+
+    it("errors when non-test statements appear after a test block", () => {
+      expect(() => parse('allow\n  fs.read\ntest "t" {\n  expect 1 to be 1\n}\nprint(1)')).toThrow(ParseError);
+    });
   });
 
   describe("complete program", () => {
